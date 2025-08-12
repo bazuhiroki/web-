@@ -312,11 +312,15 @@
                             const workbook = XLSX.read(result, { type: 'binary' });
                             const worksheet = workbook.Sheets[workbook.SheetNames[0]];
                             
-                            const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, range: 6 }); 
-                            
                             // --- 変更点 ---
-                            // 列のインデックスを修正 (B列から読み込む)
-                            certifications = jsonData.map(row => ({
+                            // 1. シート全体を、行ごとの配列データとして読み込む
+                            const allRows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                            
+                            // 2. 7行目（インデックス6）以降のデータのみを抽出
+                            const dataRows = allRows.slice(6);
+
+                            // 3. 抽出したデータを処理
+                            certifications = dataRows.map(row => ({
                                 id: uuidv4(),
                                 name: row[1] || '',             // B列
                                 difficulty: Number(row[2]) || 1, // C列
@@ -334,7 +338,7 @@
                             openModal('無効なファイル形式、または読み込むデータが含まれていません。');
                         }
                     } catch (error) {
-                        console.error(error);
+                        console.error("File upload error:", error);
                         openModal('ファイルの読み込み中にエラーが発生しました。ファイル形式か中身を確認してください。');
                     }
                 };
@@ -822,6 +826,7 @@
     </script>
 </body>
 </html>
+
 
 
 
