@@ -53,6 +53,7 @@
         const setDoc = window.setDoc;
         const onSnapshot = window.onSnapshot;
         const Plotly = window.Plotly;
+        const XLSX = window.XLSX;
 
         const App = () => {
           const [data, setData] = useState({
@@ -80,6 +81,8 @@
           const [userId, setUserId] = useState(null);
           const [showUserId, setShowUserId] = useState(false);
           const [newItemName, setNewItemName] = useState('');
+          const [progressInputName, setProgressInputName] = useState('');
+          const [progressItemType, setProgressItemType] = useState('minor');
         
           useEffect(() => {
             const initializeFirebase = async () => {
@@ -285,30 +288,78 @@
             reader.onload = async (event) => {
               const result = event.target.result;
               try {
-                const parsedData = JSON.parse(result);
-                if (Array.isArray(parsedData) && parsedData.length > 0) {
-                  const certifications = parsedData.map(cert => ({
+                const data = new Uint8Array(result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        
+                if (json.length > 1) {
+                  const certifications = json.slice(1).map(row => ({
                     id: uuidv4(),
-                    name: cert.name,
-                    difficulty: Number(cert.difficulty),
-                    necessity: Number(cert.necessity),
-                    gai: Number(cert.gai),
+                    name: row[0],
+                    difficulty: Number(row[1]),
+                    necessity: Number(row[2]),
+                    gai: Number(row[3]),
                   }));
                   const newData = { ...data, certifications };
                   setData(newData);
                   await saveDataToFirestore(newData);
                 } else {
-                  openModal('無効なファイル形式です。JSON形式のデータをアップロードしてください。');
+                  openModal('無効なファイル形式です。Excelファイルか確認してください。');
                 }
               } catch (error) {
-                openModal('ファイルの読み込み中にエラーが発生しました。JSON形式のデータか確認してください。');
+                openModal('ファイルの読み込み中にエラーが発生しました。Excelファイルか確認してください。');
               }
             };
-            reader.readAsText(file);
+            reader.readAsArrayBuffer(file);
           };
           
           const handleProgressFileUpload = async (e) => {
-            openModal("この機能は現在利用できません。学習項目は手動で追加してください。");
+            const file = e.target.files[0];
+            if (!file || !currentCertId) return;
+
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                const result = event.target.result;
+                try {
+                    const data = new Uint8Array(result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+                    if (json.length > 0) {
+                        const items = {};
+                        json.forEach(row => {
+                            const itemName = row[0];
+                            if (typeof itemName === 'string' && itemName.trim() !== '') {
+                                const type = itemName.startsWith('●') ? 'major' : 'minor';
+                                const cleanedName = itemName.replace(/[●・]/, '').trim();
+                                items[uuidv4()] = {
+                                    name: cleanedName,
+                                    checked: false,
+                                    type: type,
+                                };
+                            }
+                        });
+
+                        const updatedProgress = {
+                            ...data.progress,
+                            [currentCertId]: {
+                                ...data.progress[currentCertId],
+                                items,
+                            },
+                        };
+                        const newData = { ...data, progress: updatedProgress };
+                        setData(newData);
+                        await saveDataToFirestore(newData);
+                    } else {
+                        openModal('無効なファイル形式です。Excelファイルか確認してください。');
+                    }
+                } catch (error) {
+                    openModal('ファイルの読み込み中にエラーが発生しました。Excelファイルか確認してください。');
+                }
+            };
+            reader.readAsArrayBuffer(file);
           };
         
           const handleProgressCheckbox = async (itemId) => {
@@ -339,18 +390,26 @@
                 setLoading(false);
                 return;
               }
-              const totalMinorItems = Object.values(progressData.items).filter(i => i.type === 'minor').length;
-              const checkedMinorItems = Object.values(progressData.items).filter(i => i.type === 'minor' && i.checked).length;
+
+              const progressItems = Object.values(progressData.items);
+              const totalMinorItems = progressItems.filter(i => i.type === 'minor').length;
+              const checkedMinorItems = progressItems.filter(i => i.type === 'minor' && i.checked).length;
               const progressPercent = totalMinorItems > 0 ? (checkedMinorItems / totalMinorItems) * 100 : 0;
               const certName = certInfo.name;
+
+              const completedItems = progressItems.filter(i => i.checked).map(i => i.name).join(', ');
+              const remainingItems = progressItems.filter(i => !i.checked).map(i => i.name).join(', ');
         
               const prompt = `
               以下の学習進捗状況について、${reporter}の特徴になりきって、進捗評価とモチベーションを高めるためのアドバイスをしてください。
+              レポートは日本語で丁寧語を使って書いてください。
               進捗状況：
               - 学習中の資格：${certName}
               - 全学習項目数：${totalMinorItems}
               - 完了した項目数：${checkedMinorItems}
               - 進捗率：${progressPercent.toFixed(1)}%
+              - 完了した小項目：${completedItems || 'なし'}
+              - 残りの小項目：${remainingItems || 'なし'}
               `;
         
               let chatHistory = [];
@@ -378,8 +437,10 @@
               return;
             }
         
+            if (itemName.trim() === '') return;
+        
             const newProgressItem = {
-              name: itemName,
+              name: itemName.replace(/[●・]/, '').trim(),
               checked: false,
               type: itemType,
             };
@@ -396,6 +457,7 @@
             const newData = { ...data, progress: updatedProgress };
             setData(newData);
             await saveDataToFirestore(newData);
+            setProgressInputName('');
           };
           
           const renderTab1 = () => {
@@ -404,13 +466,13 @@
               <div className="flex flex-col lg:flex-row p-4 space-y-4 lg:space-y-0 lg:space-x-4">
                 <div className="w-full lg:w-1/3 space-y-4">
                   <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                    <h3 className="text-xl font-bold mb-4">JSONファイルから資格情報をアップロード</h3>
+                    <h3 className="text-xl font-bold mb-4">Excelから資格情報をアップロード</h3>
                     <p className="text-sm text-gray-400 mb-2">
-                      {`JSON形式のデータファイルをアップロードしてください。形式は'[{"name": "資格名", "difficulty": 3, "necessity": 4, "gai": 7}, ...]'です。`}
+                        Excelファイルをアップロードしてください。1行目をヘッダーとして読み込み、A列に「資格名」、B列に「難易度」、C列に「必要性」、D列に「やりがい」が必要です。
                     </p>
                     <input
                       type="file"
-                      accept=".json"
+                      accept=".xlsx, .xls"
                       onChange={handleCertFileUpload}
                       className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100"
                     />
@@ -580,22 +642,11 @@
                     </div>
                   </div>
                   <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                    <h3 className="text-xl font-bold mb-4">学習項目追加</h3>
-                    <div className="flex space-x-2">
-                      <input
-                        type="text"
-                        value={newItemName}
-                        onChange={(e) => setNewItemName(e.target.value)}
-                        placeholder="新しい学習項目"
-                        className="flex-grow p-2 bg-gray-700 rounded-md border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                      <button
-                        onClick={() => handleAddItem(newItemName)}
-                        className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200"
-                      >
-                        追加
-                      </button>
-                    </div>
+                    <h3 className="text-xl font-bold mb-4">学習項目アップロード</h3>
+                    <p className="text-sm text-gray-400 mb-2">
+                        Excelファイルをアップロードしてください。A列に学習項目を記載し、大項目は「●」で、小項目は「・」で始めてください。
+                    </p>
+                    <input type="file" accept=".xlsx, .xls" onChange={handleProgressFileUpload} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100"/>
                     <button
                       onClick={() => openModal("進捗状況をリセットしますか？", async () => {
                         const updatedProgress = { ...data.progress, [currentCertId]: { items: {} } };
@@ -764,4 +815,5 @@
     </script>
 </body>
 </html>
+
 
