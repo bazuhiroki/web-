@@ -61,7 +61,8 @@
     <!-- Reactコード -->
     <script type="text/babel">
         const { useState, useEffect, useCallback } = React;
-        const { v4: uuidv4 } = window;
+        // --- 変更点: 正常に動作していた形式に戻しました ---
+        const uuidv4 = window.uuidv4;
         const { initializeApp, getAuth, signInWithCustomToken, onAuthStateChanged, signInAnonymously, getFirestore, doc, setDoc, onSnapshot } = window.firebase;
         const Plotly = window.Plotly;
         const XLSX = window.XLSX;
@@ -91,7 +92,6 @@
             const [userId, setUserId] = useState(null);
             const [showUserId, setShowUserId] = useState(false);
             
-            // State for Tab 2 inputs
             const [newMajorItemName, setNewMajorItemName] = useState('');
             const [newMinorItemName, setNewMinorItemName] = useState('');
             const [parentMajorItemId, setParentMajorItemId] = useState('');
@@ -288,6 +288,7 @@
                 }
             }, [data.certifications, currentTab, renderScatterPlot]);
             
+            // --- 変更点: 正常に動作していたExcel読み込みロジックに戻しました ---
             const handleCertFileUpload = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -302,29 +303,25 @@
                             if (Array.isArray(parsedData)) {
                                 certifications = parsedData.map(cert => ({
                                     id: uuidv4(),
-                                    name: cert.name || '',
-                                    difficulty: Number(cert.difficulty) || 1,
-                                    necessity: Number(cert.necessity) || 1,
-                                    gai: Number(cert.gai) || 1,
+                                    name: cert.name,
+                                    difficulty: Number(cert.difficulty),
+                                    necessity: Number(cert.necessity),
+                                    gai: Number(cert.gai),
                                 }));
                             }
                         } else if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
                             const workbook = XLSX.read(result, { type: 'binary' });
                             const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                            const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
                             
-                            // --- 変更点: シンプルで確実な読み込み方法 ---
-                            const allRows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-
-                            if (allRows.length > 6) {
-                                const dataRows = allRows.slice(6); // 7行目からデータを取得
-
-                                certifications = dataRows.map(row => ({
+                            if (jsonData.length > 1) {
+                                certifications = jsonData.slice(1).map(row => ({
                                     id: uuidv4(),
-                                    name: row[1] || '',             // B列
-                                    difficulty: Number(row[2]) || 1, // C列
-                                    necessity: Number(row[3]) || 1, // D列
-                                    gai: Number(row[4]) || 1,       // E列
-                                })).filter(cert => cert.name && String(cert.name).trim() !== '');
+                                    name: row[0],
+                                    difficulty: Number(row[1]),
+                                    necessity: Number(row[2]),
+                                    gai: Number(row[3]),
+                                })).filter(cert => cert.name && !isNaN(cert.difficulty) && !isNaN(cert.necessity) && !isNaN(cert.gai));
                             }
                         }
 
@@ -334,7 +331,7 @@
                             await saveDataToFirestore(newData);
                             openModal('ファイルのアップロードが完了しました！');
                         } else {
-                            openModal('有効なデータが見つかりませんでした。ファイルの内容を確認してください。');
+                            openModal('無効なファイル形式、またはデータが含まれていません。');
                         }
                     } catch (error) {
                         console.error("File upload error:", error);
@@ -522,9 +519,11 @@
                             <h3 className="text-xl font-bold mb-4">資格情報をアップロード</h3>
                             <p className="text-sm text-gray-400 mb-2">
                                 Excel(.xlsx)またはJSON(.json)をアップロード。<br/>
-                                <b>Excelの場合、データは7行目から読み込まれます。</b><br/>
-                                (1~6行目は無視されます)<br/>
-                                B列: 資格名, C列: 難易度...の順で入力してください。
+                                <b>Excelの場合、1行目はヘッダーとして扱われ、データは2行目から読み込まれます。</b><br/>
+                                A列: 資格名<br/>
+                                B列: 難易度<br/>
+                                C列: 必要性<br/>
+                                D列: やりがい
                             </p>
                             <input
                                 type="file"
@@ -823,6 +822,7 @@
     </script>
 </body>
 </html>
+
 
 
 
