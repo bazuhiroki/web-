@@ -298,7 +298,6 @@
                     try {
                         let certifications = [];
                         if (file.name.endsWith('.json')) {
-                            // JSON parsing remains the same
                             const parsedData = JSON.parse(result);
                             if (Array.isArray(parsedData)) {
                                 certifications = parsedData.map(cert => ({
@@ -313,40 +312,20 @@
                             const workbook = XLSX.read(result, { type: 'binary' });
                             const worksheet = workbook.Sheets[workbook.SheetNames[0]];
                             
-                            // --- 変更点: 新しいロジック ---
-                            const allRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+                            // --- 変更点: シンプルで確実な読み込み方法 ---
+                            const allRows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
-                            let headerRowIndex = -1;
-                            for (let i = 0; i < allRows.length; i++) {
-                                if (allRows[i].some(cell => typeof cell === 'string' && cell.includes('項目名'))) {
-                                    headerRowIndex = i;
-                                    break;
-                                }
+                            if (allRows.length > 6) {
+                                const dataRows = allRows.slice(6); // 7行目からデータを取得
+
+                                certifications = dataRows.map(row => ({
+                                    id: uuidv4(),
+                                    name: row[1] || '',             // B列
+                                    difficulty: Number(row[2]) || 1, // C列
+                                    necessity: Number(row[3]) || 1, // D列
+                                    gai: Number(row[4]) || 1,       // E列
+                                })).filter(cert => cert.name && String(cert.name).trim() !== '');
                             }
-
-                            if (headerRowIndex === -1) {
-                                throw new Error("ヘッダー行（'項目名/軸名'などを含む行）が見つかりませんでした。");
-                            }
-
-                            const headerRow = allRows[headerRowIndex];
-                            const nameIndex = headerRow.findIndex(cell => typeof cell === 'string' && cell.includes('項目名'));
-                            const difficultyIndex = headerRow.findIndex(cell => typeof cell === 'string' && cell.includes('難易度'));
-                            const necessityIndex = headerRow.findIndex(cell => typeof cell === 'string' && cell.includes('必要性'));
-                            const gaiIndex = headerRow.findIndex(cell => typeof cell === 'string' && cell.includes('やりがい'));
-
-                            if (nameIndex === -1 || difficultyIndex === -1 || necessityIndex === -1 || gaiIndex === -1) {
-                                throw new Error("必要なヘッダー（項目名, 難易度, 必要性, やりがい）がシートに見つかりませんでした。");
-                            }
-
-                            const dataRows = allRows.slice(headerRowIndex + 1);
-
-                            certifications = dataRows.map(row => ({
-                                id: uuidv4(),
-                                name: row[nameIndex] || '',
-                                difficulty: Number(row[difficultyIndex]) || 1,
-                                necessity: Number(row[necessityIndex]) || 1,
-                                gai: Number(row[gaiIndex]) || 1,
-                            })).filter(cert => cert.name && String(cert.name).trim() !== '');
                         }
 
                         if (certifications.length > 0) {
@@ -428,10 +407,8 @@
                 const certProgress = updatedProgress[currentCertId];
                 
                 if (certProgress && certProgress.items && certProgress.items[majorId] && certProgress.items[majorId].subItems[minorId]) {
-                    // Toggle minor item
                     certProgress.items[majorId].subItems[minorId].checked = !certProgress.items[majorId].subItems[minorId].checked;
                     
-                    // Check if all sub-items are checked to toggle the major item
                     const allSubItemsChecked = Object.values(certProgress.items[majorId].subItems).every(item => item.checked);
                     certProgress.items[majorId].checked = allSubItemsChecked;
                     
@@ -545,7 +522,9 @@
                             <h3 className="text-xl font-bold mb-4">資格情報をアップロード</h3>
                             <p className="text-sm text-gray-400 mb-2">
                                 Excel(.xlsx)またはJSON(.json)をアップロード。<br/>
-                                <b>Excelの場合、ヘッダー行（例：「項目名」）を自動で探し、その次の行からデータを読み込みます。</b>
+                                <b>Excelの場合、データは7行目から読み込まれます。</b><br/>
+                                (1~6行目は無視されます)<br/>
+                                B列: 資格名, C列: 難易度...の順で入力してください。
                             </p>
                             <input
                                 type="file"
@@ -844,6 +823,7 @@
     </script>
 </body>
 </html>
+
 
 
 
