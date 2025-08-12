@@ -237,7 +237,7 @@
         
           const renderScatterPlot = useCallback(() => {
             if (!plotlyLoaded || !window.Plotly) return;
-            const df = data.certifications;
+            const df = data.certifications.filter(cert => cert.name && !isNaN(cert.difficulty) && !isNaN(cert.necessity) && !isNaN(cert.gai));
             if (df.length === 0) return;
         
             const plotData = [
@@ -288,30 +288,53 @@
             reader.onload = async (event) => {
               const result = event.target.result;
               try {
-                const data = new Uint8Array(result);
-                const workbook = XLSX.read(data, { type: 'array' });
-                const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-                const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-        
-                if (json.length > 1) {
-                  const certifications = json.slice(1).map(row => ({
-                    id: uuidv4(),
-                    name: row[0],
-                    difficulty: Number(row[1]),
-                    necessity: Number(row[2]),
-                    gai: Number(row[3]),
-                  }));
-                  const newData = { ...data, certifications };
-                  setData(newData);
-                  await saveDataToFirestore(newData);
+                let certifications = [];
+                // ExcelまたはJSONとして読み込む
+                if (file.name.endsWith('.json')) {
+                    const parsedData = JSON.parse(result);
+                    if (Array.isArray(parsedData) && parsedData.length > 0) {
+                        certifications = parsedData.map(cert => ({
+                            id: uuidv4(),
+                            name: cert.name,
+                            difficulty: Number(cert.difficulty),
+                            necessity: Number(cert.necessity),
+                            gai: Number(cert.gai),
+                        }));
+                    }
+                } else if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+                    const workbook = XLSX.read(result, { type: 'binary' });
+                    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                    
+                    if (jsonData.length > 1) {
+                        certifications = jsonData.slice(1).map(row => ({
+                            id: uuidv4(),
+                            name: row[0],
+                            difficulty: Number(row[1]),
+                            necessity: Number(row[2]),
+                            gai: Number(row[3]),
+                        })).filter(cert => cert.name && !isNaN(cert.difficulty) && !isNaN(cert.necessity) && !isNaN(cert.gai));
+                    }
+                }
+
+                if (certifications.length > 0) {
+                    const newData = { ...data, certifications };
+                    setData(newData);
+                    await saveDataToFirestore(newData);
+                    openModal('ファイルのアップロードが完了しました！');
                 } else {
-                  openModal('無効なファイル形式です。Excelファイルか確認してください。');
+                    openModal('無効なファイル形式、またはデータが含まれていません。');
                 }
               } catch (error) {
-                openModal('ファイルの読み込み中にエラーが発生しました。Excelファイルか確認してください。');
+                console.error(error);
+                openModal('ファイルの読み込み中にエラーが発生しました。ファイル形式か確認してください。');
               }
             };
-            reader.readAsArrayBuffer(file);
+            if (file.name.endsWith('.json')) {
+                reader.readAsText(file);
+            } else {
+                reader.readAsBinaryString(file);
+            }
           };
           
           const handleProgressFileUpload = async (e) => {
@@ -320,59 +343,60 @@
 
             const reader = new FileReader();
             reader.onload = async (event) => {
-                const result = event.target.result;
+                const fileData = event.target.result;
                 try {
-                    const data = new Uint8Array(result);
-                    const workbook = XLSX.read(data, { type: 'array' });
+                    const workbook = XLSX.read(fileData, { type: 'binary' });
                     const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-                    const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
-                    if (json.length > 0) {
-                        const items = {};
-                        json.forEach(row => {
-                            const itemName = row[0];
-                            if (typeof itemName === 'string' && itemName.trim() !== '') {
-                                const type = itemName.startsWith('●') ? 'major' : 'minor';
-                                const cleanedName = itemName.replace(/[●・]/, '').trim();
-                                items[uuidv4()] = {
-                                    name: cleanedName,
+                    const items = {};
+                    let currentMajorItem = null;
+
+                    jsonData.forEach(row => {
+                        const cellValue = row[0];
+                        if (typeof cellValue === 'string' && cellValue.trim() !== '') {
+                            const trimmedValue = cellValue.trim();
+                            if (trimmedValue.startsWith('●')) {
+                                currentMajorItem = uuidv4();
+                                items[currentMajorItem] = {
+                                    name: trimmedValue.replace('●', '').trim(),
                                     checked: false,
-                                    type: type,
+                                    type: 'major',
+                                    subItems: {}
+                                };
+                            } else if (trimmedValue.startsWith('・') && currentMajorItem) {
+                                items[currentMajorItem].subItems[uuidv4()] = {
+                                    name: trimmedValue.replace('・', '').trim(),
+                                    checked: false,
+                                    type: 'minor'
                                 };
                             }
-                        });
+                        }
+                    });
 
-                        const updatedProgress = {
-                            ...data.progress,
-                            [currentCertId]: {
-                                ...data.progress[currentCertId],
-                                items,
-                            },
-                        };
-                        const newData = { ...data, progress: updatedProgress };
-                        setData(newData);
-                        await saveDataToFirestore(newData);
-                    } else {
-                        openModal('無効なファイル形式です。Excelファイルか確認してください。');
-                    }
+                    const updatedProgress = { ...data.progress, [currentCertId]: { ...data.progress[currentCertId], items } };
+                    const newData = { ...data, progress: updatedProgress };
+                    setData(newData);
+                    await saveDataToFirestore(newData);
+                    openModal('学習項目のアップロードが完了しました！');
                 } catch (error) {
-                    openModal('ファイルの読み込み中にエラーが発生しました。Excelファイルか確認してください。');
+                    console.error(error);
+                    openModal('ファイルの読み込み中にエラーが発生しました。Excel形式のファイルか確認してください。');
                 }
             };
-            reader.readAsArrayBuffer(file);
+            reader.readAsBinaryString(file);
           };
         
-          const handleProgressCheckbox = async (itemId) => {
+          const handleProgressCheckbox = async (itemId, parentId) => {
             const updatedProgress = { ...data.progress };
             const currentCert = updatedProgress[currentCertId] || {};
-            if (currentCert.items) {
-              currentCert.items = {
-                ...currentCert.items,
-                [itemId]: {
-                  ...currentCert.items[itemId],
-                  checked: !currentCert.items[itemId].checked,
-                },
-              };
+            if (currentCert.items && currentCert.items[parentId] && currentCert.items[parentId].subItems) {
+                const updatedSubItems = { ...currentCert.items[parentId].subItems };
+                updatedSubItems[itemId].checked = !updatedSubItems[itemId].checked;
+  
+                const allSubItemsChecked = Object.values(updatedSubItems).every(item => item.checked);
+                currentCert.items[parentId].checked = allSubItemsChecked;
+                currentCert.items[parentId].subItems = updatedSubItems;
             }
             const newData = { ...data, progress: updatedProgress };
             setData(newData);
@@ -390,30 +414,30 @@
                 setLoading(false);
                 return;
               }
+              
+              let totalMinorItems = 0;
+              let checkedMinorItems = 0;
+              
+              Object.values(progressData.items).forEach(majorItem => {
+                if (majorItem.subItems) {
+                    totalMinorItems += Object.keys(majorItem.subItems).length;
+                    checkedMinorItems += Object.values(majorItem.subItems).filter(item => item.checked).length;
+                }
+              });
 
-              const progressItems = Object.values(progressData.items);
-              const totalMinorItems = progressItems.filter(i => i.type === 'minor').length;
-              const checkedMinorItems = progressItems.filter(i => i.type === 'minor' && i.checked).length;
               const progressPercent = totalMinorItems > 0 ? (checkedMinorItems / totalMinorItems) * 100 : 0;
               const certName = certInfo.name;
-
-              const completedItems = progressItems.filter(i => i.checked).map(i => i.name).join(', ');
-              const remainingItems = progressItems.filter(i => !i.checked).map(i => i.name).join(', ');
-        
+              
               const prompt = `
-              以下の学習進捗状況について、${reporter}の特徴になりきって、進捗評価とモチベーションを高めるためのアドバイスをしてください。
-              レポートは日本語で丁寧語を使って書いてください。
+              以下の学習進捗状況について、${reporter}になりきって、日本語で評価とモチベーションを高めるための具体的なアドバイスをしてください。
               進捗状況：
               - 学習中の資格：${certName}
-              - 全学習項目数：${totalMinorItems}
-              - 完了した項目数：${checkedMinorItems}
+              - 全学習項目（小項目）数：${totalMinorItems}
+              - 完了した項目（小項目）数：${checkedMinorItems}
               - 進捗率：${progressPercent.toFixed(1)}%
-              - 完了した小項目：${completedItems || 'なし'}
-              - 残りの小項目：${remainingItems || 'なし'}
               `;
         
-              let chatHistory = [];
-              chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+              const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
               const payload = { contents: chatHistory };
               const apiKey = "" 
               const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
@@ -431,48 +455,63 @@
             setLoading(false);
           };
           
-          const handleAddProgressItem = async (itemName, itemType) => {
-            if (!currentCertId) {
-              openModal("進捗を追加する前に、資格を選択してください。");
-              return;
+          const handleAddMajorItem = async (itemName) => {
+            if (!currentCertId || !itemName.trim()) {
+                openModal("進捗を追加する前に、資格を選択し、項目名を入力してください。");
+                return;
             }
-        
-            if (itemName.trim() === '') return;
-        
-            const newProgressItem = {
-              name: itemName.replace(/[●・]/, '').trim(),
-              checked: false,
-              type: itemType,
-            };
-            
             const updatedProgress = { ...data.progress };
             const currentCertProgress = updatedProgress[currentCertId] || { items: {} };
-            const newItems = {
-              ...currentCertProgress.items,
-              [uuidv4()]: newProgressItem,
+            const newMajorItem = {
+                name: itemName.trim(),
+                checked: false,
+                type: 'major',
+                subItems: {}
             };
-            currentCertProgress.items = newItems;
+            currentCertProgress.items[uuidv4()] = newMajorItem;
             updatedProgress[currentCertId] = currentCertProgress;
-        
+
             const newData = { ...data, progress: updatedProgress };
             setData(newData);
             await saveDataToFirestore(newData);
-            setProgressInputName('');
           };
           
+          const handleAddMinorItem = async (itemName, parentId) => {
+            if (!currentCertId || !itemName.trim() || !parentId) {
+                openModal("小項目を追加する前に、資格と大項目を選択し、項目名を入力してください。");
+                return;
+            }
+            const updatedProgress = { ...data.progress };
+            const currentCertProgress = updatedProgress[currentCertId] || { items: {} };
+            const newMinorItem = {
+                name: itemName.trim(),
+                checked: false,
+                type: 'minor'
+            };
+            if (currentCertProgress.items[parentId]) {
+                currentCertProgress.items[parentId].subItems[uuidv4()] = newMinorItem;
+            }
+            updatedProgress[currentCertId] = currentCertProgress;
+
+            const newData = { ...data, progress: updatedProgress };
+            setData(newData);
+            await saveDataToFirestore(newData);
+          };
+
           const renderTab1 = () => {
             const df = data.certifications;
             return (
               <div className="flex flex-col lg:flex-row p-4 space-y-4 lg:space-y-0 lg:space-x-4">
                 <div className="w-full lg:w-1/3 space-y-4">
                   <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                    <h3 className="text-xl font-bold mb-4">Excelから資格情報をアップロード</h3>
+                    <h3 className="text-xl font-bold mb-4">資格情報をアップロード</h3>
                     <p className="text-sm text-gray-400 mb-2">
-                        Excelファイルをアップロードしてください。1行目をヘッダーとして読み込み、A列に「資格名」、B列に「難易度」、C列に「必要性」、D列に「やりがい」が必要です。
+                      ExcelまたはJSON形式でアップロードしてください。
+                      Excelは1行目をヘッダーとして読み込み、列名は「name」「difficulty」「necessity」「gai」が必要です。
                     </p>
                     <input
                       type="file"
-                      accept=".xlsx, .xls"
+                      accept=".json,.xlsx"
                       onChange={handleCertFileUpload}
                       className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100"
                     />
@@ -597,15 +636,73 @@
           const renderTab2 = () => {
             const certs = data.certifications;
             const currentCertProgress = data.progress[currentCertId] || {};
-            const totalMinorItems = Object.values(currentCertProgress.items || {}).filter(i => i.type === 'minor').length;
-            const checkedMinorItems = Object.values(currentCertProgress.items || {}).filter(i => i.type === 'minor' && i.checked).length;
+            
+            const [tempMajorItem, setTempMajorItem] = useState('');
+            const [tempMinorItem, setTempMinorItem] = useState('');
+            const [selectedMajorItem, setSelectedMajorItem] = useState('');
+        
+            const handleAddMajorItem = async () => {
+              if (tempMajorItem.trim() === '') return;
+              const updatedProgress = { ...data.progress };
+              const currentCertProgress = updatedProgress[currentCertId] || { items: {} };
+              const newMajorItem = {
+                  name: tempMajorItem.trim(),
+                  checked: false,
+                  type: 'major',
+                  subItems: {}
+              };
+              currentCertProgress.items[uuidv4()] = newMajorItem;
+              updatedProgress[currentCertId] = currentCertProgress;
+              setData(updatedProgress);
+              await saveDataToFirestore(updatedProgress);
+              setTempMajorItem('');
+            };
+
+            const handleAddMinorItem = async () => {
+                if (tempMinorItem.trim() === '' || !selectedMajorItem) return;
+                const updatedProgress = { ...data.progress };
+                const currentCertProgress = updatedProgress[currentCertId] || { items: {} };
+                const newMinorItem = {
+                    name: tempMinorItem.trim(),
+                    checked: false,
+                    type: 'minor'
+                };
+                if (currentCertProgress.items[selectedMajorItem]) {
+                    currentCertProgress.items[selectedMajorItem].subItems[uuidv4()] = newMinorItem;
+                }
+                updatedProgress[currentCertId] = currentCertProgress;
+                setData(updatedProgress);
+                await saveDataToFirestore(updatedProgress);
+                setTempMinorItem('');
+            };
+
+            const handleProgressCheckbox = async (itemId, parentId) => {
+              const updatedProgress = { ...data.progress };
+              const currentCert = updatedProgress[currentCertId] || {};
+              if (currentCert.items && currentCert.items[parentId] && currentCert.items[parentId].subItems) {
+                  const updatedSubItems = { ...currentCert.items[parentId].subItems };
+                  updatedSubItems[itemId].checked = !updatedSubItems[itemId].checked;
+  
+                  const allSubItemsChecked = Object.values(updatedSubItems).every(item => item.checked);
+                  currentCert.items[parentId].checked = allSubItemsChecked;
+                  currentCert.items[parentId].subItems = updatedSubItems;
+              }
+              const newData = { ...data, progress: updatedProgress };
+              setData(newData);
+              await saveDataToFirestore(newData);
+            };
+
+            let totalMinorItems = 0;
+            let checkedMinorItems = 0;
+            
+            Object.values(currentCertProgress.items || {}).forEach(majorItem => {
+                if (majorItem.subItems) {
+                    totalMinorItems += Object.keys(majorItem.subItems).length;
+                    checkedMinorItems += Object.values(majorItem.subItems).filter(item => item.checked).length;
+                }
+            });
             const progressPercent = totalMinorItems > 0 ? (checkedMinorItems / totalMinorItems) * 100 : 0;
             
-            const handleAddItem = async (itemName) => {
-              if (itemName.trim() === '') return;
-              await handleAddProgressItem(itemName.trim(), 'minor');
-            };
-        
             return (
               <div className="flex flex-col lg:flex-row p-4 space-y-4 lg:space-y-0 lg:space-x-4">
                 <div className="w-full lg:w-1/3 space-y-4">
@@ -642,11 +739,52 @@
                     </div>
                   </div>
                   <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                    <h3 className="text-xl font-bold mb-4">学習項目アップロード</h3>
-                    <p className="text-sm text-gray-400 mb-2">
-                        Excelファイルをアップロードしてください。A列に学習項目を記載し、大項目は「●」で、小項目は「・」で始めてください。
-                    </p>
-                    <input type="file" accept=".xlsx, .xls" onChange={handleProgressFileUpload} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100"/>
+                    <h3 className="text-xl font-bold mb-4">学習項目アップロード/追加</h3>
+                    <p className="text-sm text-gray-400 mb-2">Excelファイルをアップロードします。（●:大項目、・:小項目）</p>
+                    <input type="file" accept=".xlsx" onChange={handleProgressFileUpload} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100"/>
+                    <div className="mt-4 border-t border-gray-700 pt-4">
+                        <h4 className="text-lg font-bold mb-2">学習項目を手動で追加</h4>
+                        <div className="space-y-2">
+                            <input
+                                type="text"
+                                value={tempMajorItem}
+                                onChange={(e) => setTempMajorItem(e.target.value)}
+                                placeholder="大項目名"
+                                className="w-full p-2 bg-gray-700 rounded-md border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <button
+                                onClick={handleAddMajorItem}
+                                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200"
+                                disabled={!currentCertId}
+                            >
+                                大項目を追加
+                            </button>
+                            <select
+                                className="w-full p-2 bg-gray-700 rounded-md border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                value={selectedMajorItem}
+                                onChange={(e) => setSelectedMajorItem(e.target.value)}
+                            >
+                                <option value="">大項目を選択...</option>
+                                {Object.keys(currentCertProgress.items || {}).map(key => (
+                                    <option key={key} value={key}>{currentCertProgress.items[key].name}</option>
+                                ))}
+                            </select>
+                            <input
+                                type="text"
+                                value={tempMinorItem}
+                                onChange={(e) => setTempMinorItem(e.target.value)}
+                                placeholder="小項目名"
+                                className="w-full p-2 bg-gray-700 rounded-md border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <button
+                                onClick={handleAddMinorItem}
+                                className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200"
+                                disabled={!selectedMajorItem}
+                            >
+                                小項目を追加
+                            </button>
+                        </div>
+                    </div>
                     <button
                       onClick={() => openModal("進捗状況をリセットしますか？", async () => {
                         const updatedProgress = { ...data.progress, [currentCertId]: { items: {} } };
@@ -672,13 +810,16 @@
                     </div>
                     <h4 className="text-lg font-bold mb-2">学習項目一覧</h4>
                     <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-2">
-                      {Object.entries(currentCertProgress.items || {}).map(([key, item]) => (
-                        <div key={key}>
-                          <label className="flex items-center space-x-2">
-                            <input type="checkbox" checked={item.checked} onChange={() => handleProgressCheckbox(key)} className="form-checkbox h-4 w-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500" />
-                            <span className={`text-gray-300 ${item.checked ? 'line-through text-gray-500' : ''}`}>{item.name}</span>
-                          </label>
-                        </div>
+                      {Object.entries(currentCertProgress.items || {}).map(([majorKey, majorItem]) => (
+                          <div key={majorKey}>
+                              <h5 className="font-bold mt-4 mb-1">{majorItem.name}</h5>
+                              {Object.entries(majorItem.subItems).map(([minorKey, minorItem]) => (
+                                  <label key={minorKey} className="flex items-center space-x-2 ml-4">
+                                      <input type="checkbox" checked={minorItem.checked} onChange={() => handleProgressCheckbox(minorKey, majorKey)} className="form-checkbox h-4 w-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500" />
+                                      <span className={`text-gray-300 ${minorItem.checked ? 'line-through text-gray-500' : ''}`}>{minorItem.name}</span>
+                                  </label>
+                              ))}
+                          </div>
                       ))}
                     </div>
                   </div>
@@ -690,8 +831,8 @@
           const renderTab3 = () => {
             const certs = data.certifications;
             const currentCertProgress = data.progress[currentCertId] || {};
-            const totalMinorItems = Object.values(currentCertProgress.items || {}).filter(i => i.type === 'minor').length;
-            const checkedMinorItems = Object.values(currentCertProgress.items || {}).filter(i => i.type === 'minor' && i.checked).length;
+            const totalMinorItems = Object.values(currentCertProgress.items || {}).reduce((acc, majorItem) => acc + Object.keys(majorItem.subItems).length, 0);
+            const checkedMinorItems = Object.values(currentCertProgress.items || {}).reduce((acc, majorItem) => acc + Object.values(majorItem.subItems).filter(item => item.checked).length, 0);
             const progressPercent = totalMinorItems > 0 ? (checkedMinorItems / totalMinorItems) * 100 : 0;
             return (
               <div className="flex flex-col p-4 space-y-4">
@@ -815,6 +956,7 @@
     </script>
 </body>
 </html>
+
 
 
 
