@@ -66,7 +66,7 @@
         const Plotly = window.Plotly;
         const XLSX = window.XLSX;
 
-        // --- ▼▼▼ 3Dプロット専用コンポーネントを定義 ▼▼▼ ---
+        // --- 3Dプロット専用コンポーネント ---
         const ScatterPlot = ({ data }) => {
             const plotRef = useRef(null);
 
@@ -107,9 +107,10 @@
                         paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
                         font: { color: '#f3f4f6' }, margin: { l: 0, r: 0, b: 0, t: 0 },
                         scene: {
+                            // --- ▼▼▼ 変更点: Z軸の範囲を他の軸と統一 ▼▼▼ ---
                             xaxis: { title: '難易度', range: [0, 6], showgrid: true, gridcolor: '#4b5563', showbackground: false, zerolinecolor: '#6b7280' },
                             yaxis: { title: '必要性', range: [0, 6], showgrid: true, gridcolor: '#4b5563', showbackground: false, zerolinecolor: '#6b7280' },
-                            zaxis: { title: 'やりがい', range: [0, 11], showgrid: true, gridcolor: '#4b5563', showbackground: false, zerolinecolor: '#6b7280' },
+                            zaxis: { title: 'やりがい', range: [0, 6], showgrid: true, gridcolor: '#4b5563', showbackground: false, zerolinecolor: '#6b7280' },
                             aspectratio: { x: 1, y: 1, z: 1 },
                             camera: { eye: { x: 1.5, y: 1.5, z: 1.5 } }
                         },
@@ -148,10 +149,11 @@
             const [userId, setUserId] = useState(null);
             const [showUserId, setShowUserId] = useState(false);
             
+            // --- ▼▼▼ 変更点: 「やりがい」の最大値を5に変更 ▼▼▼ ---
             const [filters, setFilters] = useState({
                 difficulty: { min: 1, max: 5 },
                 necessity: { min: 1, max: 5 },
-                gai: { min: 1, max: 10 }
+                gai: { min: 1, max: 5 }
             });
 
             const [newMajorItemName, setNewMajorItemName] = useState('');
@@ -575,9 +577,9 @@
                                 <div>
                                     <label className="block text-sm font-medium mb-1">やりがい</label>
                                     <div className="flex items-center space-x-2">
-                                        <input type="number" step="0.1" value={filters.gai.min} onChange={e => handleFilterChange('gai', 'min', e.target.value)} className="w-full p-2 bg-gray-700 rounded-md border border-gray-600" />
+                                        <input type="number" step="1" value={filters.gai.min} onChange={e => handleFilterChange('gai', 'min', e.target.value)} className="w-full p-2 bg-gray-700 rounded-md border border-gray-600" />
                                         <span>-</span>
-                                        <input type="number" step="0.1" value={filters.gai.max} onChange={e => handleFilterChange('gai', 'max', e.target.value)} className="w-full p-2 bg-gray-700 rounded-md border border-gray-600" />
+                                        <input type="number" step="1" value={filters.gai.max} onChange={e => handleFilterChange('gai', 'max', e.target.value)} className="w-full p-2 bg-gray-700 rounded-md border border-gray-600" />
                                     </div>
                                 </div>
                             </div>
@@ -597,9 +599,10 @@
                                     <label className="block text-sm font-medium mb-1">必要性 (1-5)</label>
                                     <input type="number" name="necessity" value={certForm.necessity} onChange={handleFormChange} min="1" max="5" step="1" className="w-full p-2 bg-gray-700 rounded-md border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                                 </div>
+                                {/* --- ▼▼▼ 変更点: 「やりがい」のラベルと最大値を5に変更 ▼▼▼ --- */}
                                 <div>
-                                    <label className="block text-sm font-medium mb-1">やりがい (1-10)</label>
-                                    <input type="number" name="gai" value={certForm.gai} onChange={handleFormChange} min="1" max="10" step="0.1" className="w-full p-2 bg-gray-700 rounded-md border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                                    <label className="block text-sm font-medium mb-1">やりがい (1-5)</label>
+                                    <input type="number" name="gai" value={certForm.gai} onChange={handleFormChange} min="1" max="5" step="1" className="w-full p-2 bg-gray-700 rounded-md border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                                 </div>
                                 <button onClick={handleAddUpdateCert} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200">
                                     {editingCert ? '更新' : '追加'}
