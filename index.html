@@ -36,8 +36,7 @@
     <!-- Firebaseの読み込み -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        // ▼▼▼ 変更点: signInAnonymouslyを追加 ▼▼▼
-        import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // グローバルスコープにFirebaseの関数を公開
@@ -46,9 +45,10 @@
             getAuth,
             onAuthStateChanged,
             GoogleAuthProvider,
-            signInWithPopup,
+            signInWithRedirect,
+            getRedirectResult,
             signOut,
-            signInAnonymously, // 追加
+            signInAnonymously,
             getFirestore,
             doc,
             setDoc,
@@ -59,26 +59,37 @@
     <!-- Reactコード -->
     <script type="text/babel">
         const { useState, useEffect, useCallback, useMemo, useRef } = React;
-        const { initializeApp, getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, signInAnonymously, getFirestore, doc, setDoc, onSnapshot } = window.firebase;
+        const { initializeApp, getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut, signInAnonymously, getFirestore, doc, setDoc, onSnapshot } = window.firebase;
         const { uuidv4, XLSX, Plotly } = window;
 
         // --- 3Dプロットコンポーネント ---
         const ScatterPlot = ({ data }) => {
             const plotRef = useRef(null);
-            const [isPlotlyReady, setIsPlotlyReady] = useState(false);
+            const [plotStatus, setPlotStatus] = useState('loading');
 
             useEffect(() => {
+                const timeout = setTimeout(() => {
+                    if (typeof window.Plotly === 'undefined') {
+                        setPlotStatus('error');
+                    }
+                }, 7000); // 7秒でタイムアウト
+
                 const interval = setInterval(() => {
                     if (typeof window.Plotly !== 'undefined') {
-                        setIsPlotlyReady(true);
+                        setPlotStatus('ready');
                         clearInterval(interval);
+                        clearTimeout(timeout);
                     }
                 }, 100);
-                return () => clearInterval(interval);
+
+                return () => {
+                    clearInterval(interval);
+                    clearTimeout(timeout);
+                };
             }, []);
 
             useEffect(() => {
-                if (!isPlotlyReady) return;
+                if (plotStatus !== 'ready') return;
                 const plotDiv = plotRef.current;
                 if (!plotDiv) return;
                 Plotly.purge(plotDiv);
@@ -112,12 +123,13 @@
                     };
                     Plotly.react(plotDiv, plotData, layout, { responsive: true, displaylogo: false });
                 } catch (e) { console.error("Plotlyチャートの描画中にエラーが発生しました:", e); }
-            }, [data, isPlotlyReady]);
+            }, [data, plotStatus]);
 
             return (
                 <div ref={plotRef} className="w-full h-full">
-                    {!isPlotlyReady && <div className="flex items-center justify-center h-full text-gray-400">グラフ描画ライブラリを読み込み中...</div>}
-                    {isPlotlyReady && (!data || data.length === 0) && <div className="flex items-center justify-center h-full text-gray-500 bg-gray-800/50 rounded-lg p-4 text-center">表示するデータがありません。<br/>左のフォームから資格情報を追加またはアップロードしてください。</div>}
+                    {plotStatus === 'loading' && <div className="flex items-center justify-center h-full text-gray-400">グラフ描画ライブラリを読み込み中...</div>}
+                    {plotStatus === 'error' && <div className="flex items-center justify-center h-full text-red-400 bg-red-900/20 rounded-lg p-4 text-center">グラフ描画ライブラリの読み込みに失敗しました。<br/>時間をおいてページを再読み込みしてください。</div>}
+                    {plotStatus === 'ready' && (!data || data.length === 0) && <div className="flex items-center justify-center h-full text-gray-500 bg-gray-800/50 rounded-lg p-4 text-center">表示するデータがありません。<br/>左のフォームから資格情報を追加またはアップロードしてください。</div>}
                 </div>
             );
         };
@@ -152,6 +164,14 @@
                 const firestoreInstance = getFirestore(app);
                 setAuth(authInstance);
                 setDb(firestoreInstance);
+
+                // リダイレクトからの復帰時に結果を処理
+                getRedirectResult(authInstance)
+                    .catch((error) => {
+                        console.error("Redirect Result Error:", error);
+                        openModal(`ログインに失敗しました: ${error.message}`);
+                    });
+
                 const unsubscribe = onAuthStateChanged(authInstance, (user) => {
                     setUser(user);
                     setIsLoading(false);
@@ -175,22 +195,19 @@
                 return () => unsubscribe();
             }, [db, user]);
             
-            // ▼▼▼ 変更点: Googleログインのエラーハンドリングを強化 ▼▼▼
             const handleGoogleSignIn = async () => {
                 if (!auth) return;
                 const provider = new GoogleAuthProvider();
+                await signInWithRedirect(auth, provider);
+            };
+            // ▼▼▼ 変更点: 匿名ログイン用のハンドラを追加 ▼▼▼
+            const handleAnonymousSignIn = async () => {
+                if (!auth) return;
                 try {
-                    await signInWithPopup(auth, provider);
+                    await signInAnonymously(auth);
                 } catch (error) {
-                    if (error.code === 'auth/unauthorized-domain') {
-                        openModal(
-                            'このドメインはGoogleログインが承認されていません。代わりに一時的な匿名アカウントでログインしますか？ (データはセッション中のみ保存されます)',
-                            () => signInAnonymously(auth).catch(err => openModal(`匿名ログインに失敗しました: ${err.message}`))
-                        );
-                    } else {
-                        console.error("Google Sign-In error:", error);
-                        openModal(`Googleログインに失敗しました: ${error.message}`);
-                    }
+                    console.error("Anonymous Sign-In error:", error);
+                    openModal(`匿名ログインに失敗しました: ${error.message}`);
                 }
             };
             const handleSignOut = async () => { if (auth) await signOut(auth); };
@@ -372,11 +389,18 @@
                             </div>
                         </div>}
                         <h1 className="text-4xl font-extrabold mb-4 text-center">資格取得管理ダッシュボード</h1>
-                        <p className="text-lg text-gray-400 mb-8 text-center">Googleアカウントでログインして、学習の進捗を安全に保存・管理しましょう。</p>
-                        <button onClick={handleGoogleSignIn} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg flex items-center space-x-2 transition-transform transform hover:scale-105">
-                            <svg className="w-6 h-6" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24s8.955,20,20,20s20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"></path><path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"></path><path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"></path><path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.574l6.19,5.238C39.99,36.626,44,30.638,44,24C44,22.659,43.862,21.35,43.611,20.083z"></path></svg>
-                            <span>Googleでログイン</span>
-                        </button>
+                        <p className="text-lg text-gray-400 mb-8 text-center">Googleアカウントでログイン、または匿名で続行してください。</p>
+                        {/* ▼▼▼ 変更点: ログインボタンを2つに分離 ▼▼▼ */}
+                        <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
+                            <button onClick={handleGoogleSignIn} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg flex items-center justify-center space-x-2 transition-transform transform hover:scale-105">
+                                <svg className="w-6 h-6" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24s8.955,20,20,20s20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"></path><path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"></path><path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"></path><path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.574l6.19,5.238C39.99,36.626,44,30.638,44,24C44,22.659,43.862,21.35,43.611,20.083z"></path></svg>
+                                <span>Googleでログイン</span>
+                            </button>
+                            <button onClick={handleAnonymousSignIn} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg flex items-center justify-center space-x-2 transition-transform transform hover:scale-105">
+                                <span>匿名で続ける</span>
+                            </button>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-4 text-center max-w-md">Googleログインでデータを永続的に保存できます。匿名ログインの場合、データはブラウザを閉じるまでの一時的な保存となります。</p>
                     </div>
                 );
             }
@@ -401,7 +425,7 @@
                                 <button onClick={handleSignOut} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg text-sm">ログアウト</button>
                             </div>
                         </div>
-                        <div className="mt-2 text-sm text-gray-400">ようこそ、{user.displayName || 'ゲスト'}さん</div>
+                        <div className="mt-2 text-sm text-gray-400">ようこそ、{user.isAnonymous ? 'ゲスト' : user.displayName}さん</div>
                     </header>
                     <nav className="mb-8 border-b border-gray-700">
                         <div className="flex justify-center space-x-4">
