@@ -34,8 +34,9 @@
     <!-- Firebaseの読み込み -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        // ▼▼▼ 変更点: 匿名認証に必要なモジュールを再追加 ▼▼▼
+        import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
         window.firebase = {
             initializeApp,
@@ -140,7 +141,6 @@
         const App = () => {
             const [db, setDb] = useState(null);
             const [userId, setUserId] = useState(null);
-            // ▼▼▼ 変更点: 認証完了状態を管理するstateを追加 ▼▼▼
             const [isAuthReady, setIsAuthReady] = useState(false);
             const [data, setData] = useState({ certifications: [], progress: {} });
             const [currentTab, setCurrentTab] = useState('tab-1');
@@ -158,7 +158,7 @@
             const [modalMessage, setModalMessage] = useState('');
             const [modalAction, setModalAction] = useState(null);
             
-            // ▼▼▼ 変更点: Firebase初期化と認証処理を分離 ▼▼▼
+            // ▼▼▼ 変更点: Firebase初期化と認証処理を分離し、完了を待つように修正 ▼▼▼
             useEffect(() => {
                 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
                 if (Object.keys(firebaseConfig).length === 0) { return; }
@@ -170,7 +170,7 @@
                 onAuthStateChanged(auth, (user) => {
                     if (user) {
                         setUserId(user.uid);
-                        setIsAuthReady(true); // 認証完了
+                        setIsAuthReady(true); // 認証完了をマーク
                     } else {
                         signInAnonymously(auth).catch(err => {
                             console.error("Anonymous sign-in failed", err);
@@ -185,7 +185,6 @@
                 if (!db || !userId || !isAuthReady) return;
                 
                 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                // 匿名認証のユーザーIDをパスとして使用
                 const userDocRef = doc(db, 'artifacts', appId, 'users', userId);
 
                 const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
@@ -198,13 +197,11 @@
                     } else { setData({ certifications: [], progress: {} }); }
                 }, (error) => {
                     console.error("Firestore snapshot error:", error);
-                    // ユーザーに分かりやすいエラーメッセージを表示
                     openModal(`データの読み込みに失敗しました。Firebaseのセキュリティルールが正しく設定されているか確認してください。エラー: ${error.code}`);
                 });
                 return () => unsubscribe();
             }, [db, userId, isAuthReady]);
             
-            // ▼▼▼ 変更点: データベースのパスをユーザー専用領域に変更 ▼▼▼
             const saveDataToFirestore = useCallback(async (newData) => {
                 if (!db || !userId) return;
                 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -596,6 +593,7 @@
     </script>
 </body>
 </html>
+
 
 
 
