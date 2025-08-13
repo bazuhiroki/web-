@@ -18,6 +18,13 @@
         ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
         canvas { display: block; }
+        .disabled-overlay {
+            position: absolute;
+            inset: 0;
+            background-color: rgba(31, 41, 55, 0.75);
+            z-index: 10;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100">
@@ -34,7 +41,7 @@
     <!-- Firebaseの読み込み -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, onSnapshot, enableNetwork, disableNetwork } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getAuth, onAuthStateChanged, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
         window.firebase = {
@@ -46,14 +53,16 @@
             getAuth,
             onAuthStateChanged,
             signInAnonymously,
-            signInWithCustomToken
+            signInWithCustomToken,
+            enableNetwork,
+            disableNetwork
         };
     </script>
     
     <!-- Reactコード -->
     <script type="text/babel">
         const { useState, useEffect, useCallback, useMemo, useRef } = React;
-        const { initializeApp, getFirestore, doc, setDoc, onSnapshot, getAuth, onAuthStateChanged, signInAnonymously, signInWithCustomToken } = window.firebase;
+        const { initializeApp, getFirestore, doc, setDoc, onSnapshot, getAuth, onAuthStateChanged, signInAnonymously, signInWithCustomToken, enableNetwork, disableNetwork } = window.firebase;
         const { uuidv4, XLSX, Chart } = window;
 
         // --- Chart.js 2Dバブルチャートコンポーネント ---
@@ -140,9 +149,8 @@
         // --- メインアプリケーションコンポーネント ---
         const App = () => {
             const [db, setDb] = useState(null);
-            const [auth, setAuth] = useState(null);
             const [userId, setUserId] = useState(null);
-            const [isAuthReady, setIsAuthReady] = useState(false);
+            const [connectionStatus, setConnectionStatus] = useState('connecting'); // 'connecting', 'connected', 'failed'
             const [data, setData] = useState({ certifications: [], progress: {} });
             const [currentTab, setCurrentTab] = useState('tab-1');
             const [editingCert, setEditingCert] = useState(null);
@@ -162,8 +170,9 @@
             // Firebaseの初期化と認証
             useEffect(() => {
                 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
-                if (!firebaseConfig) {
-                    openModal("Firebaseの接続情報が見つかりません。");
+                if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
+                    console.error("Firebase config is missing or empty.");
+                    setConnectionStatus('failed');
                     return;
                 }
                 
@@ -172,34 +181,27 @@
                     const firestoreInstance = getFirestore(app);
                     const authInstance = getAuth(app);
                     setDb(firestoreInstance);
-                    setAuth(authInstance);
 
                     onAuthStateChanged(authInstance, async (user) => {
                         if (user) {
                             setUserId(user.uid);
-                            setIsAuthReady(true);
+                            setConnectionStatus('connected');
                         } else {
-                            try {
-                                if (typeof __initial_auth_token !== 'undefined') {
-                                    await signInWithCustomToken(authInstance, __initial_auth_token);
-                                } else {
-                                    await signInAnonymously(authInstance);
-                                }
-                            } catch (err) {
-                                console.error("Authentication failed:", err);
-                                openModal(`データベースへの認証に失敗しました: ${err.message}`);
-                            }
+                            signInAnonymously(authInstance).catch(err => {
+                                console.error("Anonymous sign-in failed:", err);
+                                setConnectionStatus('failed');
+                            });
                         }
                     });
                 } catch (error) {
                     console.error("Firebase initialization failed:", error);
-                    openModal(`Firebaseの初期化に失敗しました: ${error.message}`);
+                    setConnectionStatus('failed');
                 }
             }, []);
 
             // データの購読
             useEffect(() => {
-                if (!isAuthReady || !db || !userId) return;
+                if (connectionStatus !== 'connected' || !db || !userId) return;
                 
                 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
                 const userDocRef = doc(db, 'artifacts', appId, 'users', userId);
@@ -213,7 +215,6 @@
                         });
                     } else {
                         console.log("No such document! Creating one...");
-                        // 初期データでドキュメントを作成することも可能
                         saveDataToFirestore({ certifications: [], progress: {} }); 
                     }
                 }, (error) => {
@@ -222,10 +223,10 @@
                 });
 
                 return () => unsubscribe();
-            }, [isAuthReady, db, userId]);
+            }, [connectionStatus, db, userId]);
             
             const saveDataToFirestore = useCallback(async (newData) => {
-                if (!db || !userId) return;
+                if (connectionStatus !== 'connected' || !db || !userId) return;
                 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
                 const userDocRef = doc(db, 'artifacts', appId, 'users', userId);
                 try {
@@ -237,7 +238,7 @@
                     console.error("Data save error:", err);
                     openModal(`データ保存エラー: ${err.message}`);
                 }
-            }, [db, userId]);
+            }, [connectionStatus, db, userId]);
 
             useEffect(() => {
                 if (editingCert) { setCertForm(editingCert); } 
@@ -246,7 +247,7 @@
 
             const openModal = (message, onConfirm = null) => {
                 setModalMessage(message);
-                setModalAction(() => onConfirm); // 関数を直接セット
+                setModalAction(() => onConfirm);
                 setIsModalOpen(true);
             };
             const closeModal = () => setIsModalOpen(false);
@@ -330,7 +331,7 @@
                 reader.readAsBinaryString(file);
             };
             const handleProgressCheckbox = async (minorId, majorId) => {
-                const updatedProgress = JSON.parse(JSON.stringify(data.progress)); // Deep copy
+                const updatedProgress = JSON.parse(JSON.stringify(data.progress));
                 const certProgress = updatedProgress[currentCertId];
                 if (certProgress?.items?.[majorId]?.subItems?.[minorId]) {
                     certProgress.items[majorId].subItems[minorId].checked = !certProgress.items[majorId].subItems[minorId].checked;
@@ -381,18 +382,65 @@
                     const progressPercent = total > 0 ? (checked / total) * 100 : 0;
                     const prompt = `あなたは「${reporter}」です。以下の学習進捗について、そのキャラクターになりきって学習者を力強く励ます評価と次に取り組むべきアクションを提案してください。レポートは情熱的かつ分かりやすく、markdown形式で記述してください。\n### 学習進捗レポート\n- **資格名**: ${certInfo.name}\n- **総学習項目数**: ${total}\n- **完了項目数**: ${checked}\n- **進捗率**: ${progressPercent.toFixed(1)}%`;
                     
-                    // This is a placeholder for the Gemini API call
-                    // In a real environment, you would make a fetch request here.
-                    const mockReport = `## ${reporter}からの激励メッセージ！\n\n素晴らしいぞ、学習者よ！\n**${certInfo.name}**取得に向けた君の努力、この私にはしっかりと見えている！\n\n**進捗率は${progressPercent.toFixed(1)}%**か。一歩一歩、着実にゴールに近づいているな。その調子だ！\n\n### 次の一手\n- **未完了項目**に集中砲火だ！特に苦手な分野から潰していくのが勝利への近道だぞ。\n- **週末**は復習の時間に充てよう。記憶は繰り返すことで定着するからな。\n\n君ならできる！健闘を祈る！`;
+                    const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
+                    const apiKey = ""; 
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
                     
-                    setReport(mockReport);
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
 
-                } catch (error) { setReport(`レポート生成中にエラーが発生しました: ${error.message}`); }
+                    if (!response.ok) {
+                        throw new Error(`API error: ${response.status} ${response.statusText}`);
+                    }
+
+                    const result = await response.json();
+                    const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+                    if (text) {
+                        setReport(text);
+                    } else {
+                        throw new Error('レポートのテキストが取得できませんでした。');
+                    }
+
+                } catch (error) { 
+                    console.error("Report generation failed:", error);
+                    setReport(`レポート生成中にエラーが発生しました: ${error.message}`); 
+                }
                 setLoadingReport(false);
             };
 
+            // 接続状態に応じたUIの表示
+            if (connectionStatus === 'connecting') {
+                return (
+                    <div className="flex flex-col items-center justify-center h-full text-white">
+                        <h2 className="text-2xl font-bold mb-4">データベースに接続中...</h2>
+                        <div className="w-1/2 max-w-md bg-gray-700 rounded-full h-2.5">
+                            <div className="bg-blue-600 h-2.5 rounded-full animate-pulse"></div>
+                        </div>
+                    </div>
+                );
+            }
+            
+            if (connectionStatus === 'failed') {
+                return (
+                    <div className="flex flex-col items-center justify-center h-full text-white p-4">
+                         <div className="bg-red-900/50 border border-red-700 p-8 rounded-lg text-center">
+                            <h2 className="text-3xl font-bold mb-4 text-red-300">接続エラー</h2>
+                            <p className="text-red-200 text-lg">Firebaseに接続できませんでした。</p>
+                            <p className="text-red-200 mt-2">アプリケーションの実行環境で、接続設定が正しく構成されているか確認してください。</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            const isDisconnected = connectionStatus !== 'connected';
+
             return (
-                <div className="min-h-screen p-4">
+                <div className="min-h-screen p-4 relative">
+                    {isDisconnected && <div className="disabled-overlay"></div>}
                     {isModalOpen && <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
                         <div className="bg-gray-800 p-6 rounded-lg shadow-xl max-w-sm w-full mx-4">
                             <p className="text-white mb-6" style={{whiteSpace: 'pre-wrap'}}>{modalMessage}</p>
@@ -406,7 +454,7 @@
                         <div className="flex justify-center items-center relative">
                             <h1 className="text-4xl font-extrabold text-white" style={{fontFamily: "'Inter', sans-serif"}}>資格取得管理ダッシュボード</h1>
                         </div>
-                        <div className="mt-2 text-xs text-gray-500 font-mono">ユーザーID: {userId || '接続中...'}</div>
+                        <div className="mt-2 text-xs text-gray-500 font-mono">ユーザーID: {userId || '未接続'}</div>
                     </header>
                     <nav className="mb-8 border-b border-gray-700">
                         <div className="flex justify-center space-x-4">
@@ -522,8 +570,8 @@
                                 <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
                                     <h3 className="text-xl font-bold mb-4">{data.certifications.find(c => c.id === currentCertId)?.name || '資格を選択してください'}</h3>
                                     <div className="w-full bg-gray-700 rounded-full h-4 mb-4">
-                                        <div className="bg-green-500 h-4 rounded-full text-xs flex items-center justify-center text-white font-bold" style={{ width: `${data.progress[currentCertId] ? (Object.values(data.progress[currentCertId].items || {}).reduce((acc, major) => acc + Object.values(major.subItems || {}).filter(sub => sub.checked).length, 0) / Object.values(data.progress[currentCertId].items || {}).reduce((acc, major) => acc + Object.keys(major.subItems || {}).length, 0) * 100 || 0).toFixed(1) : 0}%` }}>
-                                            {data.progress[currentCertId] ? (Object.values(data.progress[currentCertId].items || {}).reduce((acc, major) => acc + Object.values(major.subItems || {}).filter(sub => sub.checked).length, 0) / Object.values(data.progress[currentCertId].items || {}).reduce((acc, major) => acc + Object.keys(major.subItems || {}).length, 0) * 100 || 0).toFixed(1) : 0}%
+                                        <div className="bg-green-500 h-4 rounded-full text-xs flex items-center justify-center text-white font-bold" style={{ width: `${data.progress[currentCertId] ? (Object.values(data.progress[currentCertId].items || {}).reduce((acc, major) => acc + Object.values(major.subItems || {}).filter(sub => sub.checked).length, 0) / (Object.values(data.progress[currentCertId].items || {}).reduce((acc, major) => acc + Object.keys(major.subItems || {}).length, 0) || 1) * 100).toFixed(1) : 0}%` }}>
+                                            {data.progress[currentCertId] ? (Object.values(data.progress[currentCertId].items || {}).reduce((acc, major) => acc + Object.values(major.subItems || {}).filter(sub => sub.checked).length, 0) / (Object.values(data.progress[currentCertId].items || {}).reduce((acc, major) => acc + Object.keys(major.subItems || {}).length, 0) || 1) * 100).toFixed(1) : 0}%
                                         </div>
                                     </div>
                                     <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2">
@@ -564,52 +612,23 @@
         };
         
         const AppLoader = () => {
-            const [status, setStatus] = useState('準備中...');
-            const [progress, setProgress] = useState(0);
-
+             const [isReady, setIsReady] = useState(false);
+            
             useEffect(() => {
-                const libraries = [
-                    { name: 'React', check: () => window.React && window.ReactDOM },
-                    { name: 'Babel', check: () => window.Babel },
-                    { name: 'UUID', check: () => window.uuidv4 },
-                    { name: 'XLSX', check: () => window.XLSX },
-                    { name: 'Chart.js', check: () => window.Chart },
-                    { name: 'Firebase', check: () => window.firebase }
-                ];
-                const total = libraries.length;
-                let loadedCount = 0;
-
-                const interval = setInterval(() => {
-                    const nextLibIndex = loadedCount;
-                    if (nextLibIndex >= total) {
-                        setStatus('完了');
-                        setProgress(100);
-                        clearInterval(interval);
-                        return;
+                const checkLibs = () => {
+                    if (window.React && window.ReactDOM && window.Babel && window.uuidv4 && window.XLSX && window.Chart && window.firebase) {
+                        setIsReady(true);
+                    } else {
+                        setTimeout(checkLibs, 100);
                     }
-
-                    const library = libraries[nextLibIndex];
-                    setStatus(`${library.name}を準備中...`);
-                    
-                    if (library.check()) {
-                        loadedCount++;
-                        setProgress((loadedCount / total) * 100);
-                    }
-                }, 200);
-
-                return () => {
-                    clearInterval(interval);
                 };
+                checkLibs();
             }, []);
 
-            if (progress < 100) {
-                return (
+            if (!isReady) {
+                 return (
                     <div className="flex flex-col items-center justify-center h-full text-white">
                         <h2 className="text-2xl font-bold mb-4">アプリケーションを準備中...</h2>
-                        <div className="w-1/2 max-w-md bg-gray-700 rounded-full h-2.5">
-                            <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${progress}%`, transition: 'width 0.2s ease-in-out' }}></div>
-                        </div>
-                        <p className="mt-4 text-gray-400">{status}</p>
                     </div>
                 );
             }
@@ -622,6 +641,7 @@
     </script>
 </body>
 </html>
+
 
 
 
