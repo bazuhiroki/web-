@@ -60,8 +60,7 @@
     
     <!-- Reactコード -->
     <script type="text/babel">
-        const { useState, useEffect, useCallback } = React;
-        // --- 変更点: 正常に動作していた形式に戻しました ---
+        const { useState, useEffect, useCallback, useMemo } = React;
         const uuidv4 = window.uuidv4;
         const { initializeApp, getAuth, signInWithCustomToken, onAuthStateChanged, signInAnonymously, getFirestore, doc, setDoc, onSnapshot } = window.firebase;
         const Plotly = window.Plotly;
@@ -92,6 +91,13 @@
             const [userId, setUserId] = useState(null);
             const [showUserId, setShowUserId] = useState(false);
             
+            // --- ▼▼▼ フィルター用のStateを追加 ▼▼▼ ---
+            const [filters, setFilters] = useState({
+                difficulty: { min: 1, max: 5 },
+                necessity: { min: 1, max: 5 },
+                gai: { min: 1, max: 10 }
+            });
+
             const [newMajorItemName, setNewMajorItemName] = useState('');
             const [newMinorItemName, setNewMinorItemName] = useState('');
             const [parentMajorItemId, setParentMajorItemId] = useState('');
@@ -239,27 +245,61 @@
                 });
             };
             
-            const renderScatterPlot = useCallback(() => {
+            // --- ▼▼▼ フィルターされたデータをメモ化 ▼▼▼ ---
+            const filteredCerts = useMemo(() => {
+                return data.certifications.filter(cert => 
+                    cert.difficulty >= filters.difficulty.min && cert.difficulty <= filters.difficulty.max &&
+                    cert.necessity >= filters.necessity.min && cert.necessity <= filters.necessity.max &&
+                    cert.gai >= filters.gai.min && cert.gai <= filters.gai.max
+                );
+            }, [data.certifications, filters]);
+
+            const renderScatterPlot = useCallback((df) => {
                 if (!plotlyLoaded || !document.getElementById('scatter-plot')) return;
-                const df = data.certifications.filter(cert => cert.name && !isNaN(cert.difficulty) && !isNaN(cert.necessity) && !isNaN(cert.gai));
                 
+                const center = 3, axis_range = [0, 6];
+
                 const plotData = [
+                    // 資格データの散布図
                     {
                         x: df.map((c) => c.difficulty),
                         y: df.map((c) => c.necessity),
                         z: df.map((c) => c.gai),
-                        mode: 'markers+text',
+                        mode: 'markers',
                         type: 'scatter3d',
                         marker: {
-                            size: df.map((c) => c.gai + 2),
+                            size: df.map((c) => c.gai + 3),
                             color: df.map((c) => c.gai),
-                            colorscale: 'Viridis',
+                            colorscale: 'Cividis',
                             colorbar: { title: 'やりがい' },
                         },
                         text: df.map((c) => c.name),
-                        textposition: 'top center',
                         hoverinfo: 'text',
                     },
+                    // 資格名のテキスト
+                    {
+                        x: df.map((c) => c.difficulty),
+                        y: df.map((c) => c.necessity),
+                        z: df.map((c) => c.gai),
+                        mode: 'text',
+                        type: 'scatter3d',
+                        text: df.map((c) => c.name),
+                        textfont: { color: 'white', size: 10 },
+                        textposition: 'top center',
+                        hoverinfo: 'none',
+                        showlegend: false
+                    },
+                    // 中心線
+                    {
+                        x: [axis_range[0], axis_range[1], null, center, center, null, center, center],
+                        y: [center, center, null, axis_range[0], axis_range[1], null, center, center],
+                        z: [center, center, null, center, center, null, axis_range[0], axis_range[1]],
+                        mode: 'lines',
+                        type: 'scatter3d',
+                        line: { color: "rgba(200, 200, 200, 0.5)", width: 2 },
+                        hoverinfo: 'none',
+                        showlegend: false
+                    }
                 ];
             
                 const layout = {
@@ -277,18 +317,18 @@
                             eye: {x: 1.5, y: 1.5, z: 1.5}
                         }
                     },
+                    showlegend: false
                 };
             
                 Plotly.newPlot('scatter-plot', plotData, layout, { responsive: true });
-            }, [data.certifications, plotlyLoaded]);
+            }, [plotlyLoaded]);
             
             useEffect(() => {
                 if (currentTab === 'tab-1') {
-                    renderScatterPlot();
+                    renderScatterPlot(filteredCerts);
                 }
-            }, [data.certifications, currentTab, renderScatterPlot]);
+            }, [filteredCerts, currentTab, renderScatterPlot]);
             
-            // --- 変更点: 正常に動作していたExcel読み込みロジックに戻しました ---
             const handleCertFileUpload = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -512,6 +552,16 @@
                 setLoading(false);
             };
 
+            const handleFilterChange = (filterName, type, value) => {
+                setFilters(prev => ({
+                    ...prev,
+                    [filterName]: {
+                        ...prev[filterName],
+                        [type]: Number(value)
+                    }
+                }));
+            };
+
             const renderTab1 = () => (
                 <div className="flex flex-col lg:flex-row p-4 gap-4">
                     <div className="w-full lg:w-1/3 space-y-4">
@@ -520,10 +570,7 @@
                             <p className="text-sm text-gray-400 mb-2">
                                 Excel(.xlsx)またはJSON(.json)をアップロード。<br/>
                                 <b>Excelの場合、1行目はヘッダーとして扱われ、データは2行目から読み込まれます。</b><br/>
-                                A列: 資格名<br/>
-                                B列: 難易度<br/>
-                                C列: 必要性<br/>
-                                D列: やりがい
+                                A列: 資格名, B列: 難易度, C列: 必要性, D列: やりがい
                             </p>
                             <input
                                 type="file"
@@ -531,6 +578,36 @@
                                 onChange={handleCertFileUpload}
                                 className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100 cursor-pointer"
                             />
+                        </div>
+                        {/* --- ▼▼▼ フィルターUIを追加 ▼▼▼ --- */}
+                        <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                            <h3 className="text-xl font-bold mb-4">フィルター</h3>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">難易度</label>
+                                    <div className="flex items-center space-x-2">
+                                        <input type="number" value={filters.difficulty.min} onChange={e => handleFilterChange('difficulty', 'min', e.target.value)} className="w-full p-2 bg-gray-700 rounded-md border border-gray-600" />
+                                        <span>-</span>
+                                        <input type="number" value={filters.difficulty.max} onChange={e => handleFilterChange('difficulty', 'max', e.target.value)} className="w-full p-2 bg-gray-700 rounded-md border border-gray-600" />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">必要性</label>
+                                    <div className="flex items-center space-x-2">
+                                        <input type="number" value={filters.necessity.min} onChange={e => handleFilterChange('necessity', 'min', e.target.value)} className="w-full p-2 bg-gray-700 rounded-md border border-gray-600" />
+                                        <span>-</span>
+                                        <input type="number" value={filters.necessity.max} onChange={e => handleFilterChange('necessity', 'max', e.target.value)} className="w-full p-2 bg-gray-700 rounded-md border border-gray-600" />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">やりがい</label>
+                                    <div className="flex items-center space-x-2">
+                                        <input type="number" step="0.1" value={filters.gai.min} onChange={e => handleFilterChange('gai', 'min', e.target.value)} className="w-full p-2 bg-gray-700 rounded-md border border-gray-600" />
+                                        <span>-</span>
+                                        <input type="number" step="0.1" value={filters.gai.max} onChange={e => handleFilterChange('gai', 'max', e.target.value)} className="w-full p-2 bg-gray-700 rounded-md border border-gray-600" />
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
                             <h3 className="text-xl font-bold mb-4">{editingCert ? '資格情報の編集' : '資格情報の追加'}</h3>
@@ -570,9 +647,9 @@
                         </div>
                         <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
                             <h3 className="text-xl font-bold mb-4">資格一覧</h3>
-                            <div className="overflow-x-auto">
+                            <div className="overflow-x-auto max-h-[40vh]">
                                 <table className="min-w-full divide-y divide-gray-700">
-                                    <thead className="bg-gray-700">
+                                    <thead className="bg-gray-700 sticky top-0">
                                         <tr>
                                             <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">資格名</th>
                                             <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">難易度</th>
@@ -582,12 +659,12 @@
                                         </tr>
                                     </thead>
                                     <tbody className="bg-gray-800 divide-y divide-gray-700">
-                                        {data.certifications.length === 0 ? (
+                                        {filteredCerts.length === 0 ? (
                                             <tr>
-                                                <td colSpan="5" className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium text-gray-400">資格情報が登録されていません。</td>
+                                                <td colSpan="5" className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium text-gray-400">該当する資格がありません。</td>
                                             </tr>
                                         ) : (
-                                            data.certifications.map((cert) => (
+                                            filteredCerts.map((cert) => (
                                                 <tr key={cert.id} className="hover:bg-gray-700 transition-colors duration-150">
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{cert.name}</td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{cert.difficulty}</td>
@@ -822,6 +899,7 @@
     </script>
 </body>
 </html>
+
 
 
 
