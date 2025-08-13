@@ -18,13 +18,6 @@
         ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
         canvas { display: block; }
-        .disabled-overlay {
-            position: absolute;
-            inset: 0;
-            background-color: rgba(31, 41, 55, 0.75);
-            z-index: 10;
-            cursor: not-allowed;
-        }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100">
@@ -55,8 +48,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        // ▼▼▼ Google認証に必要なモジュールを追加 ▼▼▼
-        import { getAuth, onAuthStateChanged, signInAnonymously, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, onAuthStateChanged, signInAnonymously, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
         window.firebase = {
             initializeApp,
@@ -67,9 +59,9 @@
             getAuth,
             onAuthStateChanged,
             signInAnonymously,
-            // ▼▼▼ Google認証用のオブジェクトを追加 ▼▼▼
             GoogleAuthProvider,
-            signInWithPopup,
+            signInWithRedirect,
+            getRedirectResult,
             signOut
         };
     </script>
@@ -77,7 +69,7 @@
     <!-- Reactコード -->
     <script type="text/babel">
         const { useState, useEffect, useCallback, useMemo, useRef } = React;
-        const { initializeApp, getFirestore, doc, setDoc, onSnapshot, getAuth, onAuthStateChanged, signInAnonymously, GoogleAuthProvider, signInWithPopup, signOut } = window.firebase;
+        const { initializeApp, getFirestore, doc, setDoc, onSnapshot, getAuth, onAuthStateChanged, signInAnonymously, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut } = window.firebase;
         const { uuidv4, XLSX, Chart } = window;
 
         // --- Chart.js 2Dバブルチャートコンポーネント ---
@@ -163,10 +155,8 @@
 
         // --- メインアプリケーションコンポーネント ---
         const App = () => {
-            const [auth, setAuth] = useState(null);
-            const [db, setDb] = useState(null);
-            const [user, setUser] = useState(null); // ユーザーオブジェクトを保持
-            const [connectionStatus, setConnectionStatus] = useState('connecting');
+            const [user, setUser] = useState(null);
+            const [connectionStatus, setConnectionStatus] = useState('initializing');
             const [data, setData] = useState({ certifications: [], progress: {} });
             const [currentTab, setCurrentTab] = useState('tab-1');
             const [editingCert, setEditingCert] = useState(null);
@@ -183,8 +173,12 @@
             const [modalMessage, setModalMessage] = useState('');
             const [modalAction, setModalAction] = useState(null);
             
+            const firebaseServices = useRef(null);
+
             // Firebaseの初期化
             useEffect(() => {
+                if (firebaseServices.current) return;
+
                 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
                 if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
                     setConnectionStatus('failed');
@@ -193,22 +187,24 @@
                 
                 try {
                     const app = initializeApp(firebaseConfig);
-                    const firestoreInstance = getFirestore(app);
-                    const authInstance = getAuth(app);
-                    setDb(firestoreInstance);
-                    setAuth(authInstance);
+                    const auth = getAuth(app);
+                    const db = getFirestore(app);
+                    firebaseServices.current = { app, auth, db };
 
-                    // 認証状態の監視
-                    const unsubscribe = onAuthStateChanged(authInstance, (user) => {
+                    getRedirectResult(auth).catch((error) => {
+                        console.error("Redirect Result Error:", error);
+                        openModal(`Googleログインに失敗しました: ${error.code}`);
+                    });
+
+                    const unsubscribe = onAuthStateChanged(auth, (user) => {
                         if (user) {
                             setUser(user);
                             setConnectionStatus('connected');
                         } else {
                             setUser(null);
-                            setConnectionStatus('anonymous'); // 未ログイン状態
+                            setConnectionStatus('ready');
                         }
                     });
-                    return () => unsubscribe();
                 } catch (error) {
                     console.error("Firebase initialization failed:", error);
                     setConnectionStatus('failed');
@@ -217,11 +213,12 @@
 
             // データの購読
             useEffect(() => {
-                if (connectionStatus !== 'connected' || !db || !user) {
-                    setData({ certifications: [], progress: {} }); // ログアウト時などにデータをクリア
+                if (connectionStatus !== 'connected' || !user) {
+                    setData({ certifications: [], progress: {} });
                     return;
                 };
                 
+                const { db } = firebaseServices.current;
                 const appId = JSON.parse(__firebase_config).appId;
                 const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid);
 
@@ -236,15 +233,15 @@
                         saveDataToFirestore({ certifications: [], progress: {} }); 
                     }
                 }, (error) => {
-                    console.error("Firestore snapshot error:", error);
                     openModal(`データの読み込みに失敗しました。エラー: ${error.code}`);
                 });
 
                 return () => unsubscribe();
-            }, [connectionStatus, db, user]);
+            }, [connectionStatus, user]);
             
             const saveDataToFirestore = useCallback(async (newData) => {
-                if (connectionStatus !== 'connected' || !db || !user) return;
+                if (connectionStatus !== 'connected' || !user) return;
+                const { db } = firebaseServices.current;
                 const appId = JSON.parse(__firebase_config).appId;
                 const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid);
                 try {
@@ -255,18 +252,21 @@
                 } catch (err) {
                     openModal(`データ保存エラー: ${err.message}`);
                 }
-            }, [connectionStatus, db, user]);
+            }, [connectionStatus, user]);
 
-            // ▼▼▼ ログイン・ログアウト処理を追加 ▼▼▼
             const handleGoogleLogin = async () => {
+                if (!firebaseServices.current) return;
+                const { auth } = firebaseServices.current;
                 const provider = new GoogleAuthProvider();
                 try {
-                    await signInWithPopup(auth, provider);
+                    await signInWithRedirect(auth, provider);
                 } catch (error) {
-                    openModal(`Googleログインに失敗しました: ${error.message}`);
+                    openModal(`Googleログイン処理を開始できませんでした: ${error.message}`);
                 }
             };
             const handleAnonymousLogin = async () => {
+                if (!firebaseServices.current) return;
+                const { auth } = firebaseServices.current;
                 try {
                     await signInAnonymously(auth);
                 } catch (error) {
@@ -274,6 +274,8 @@
                 }
             };
             const handleLogout = async () => {
+                if (!firebaseServices.current) return;
+                const { auth } = firebaseServices.current;
                 await signOut(auth);
             };
 
@@ -451,7 +453,7 @@
             };
 
             // 接続状態に応じたUIの表示
-            if (connectionStatus === 'connecting') {
+            if (connectionStatus === 'initializing') {
                 return (
                     <div className="flex flex-col items-center justify-center h-full text-white">
                         <h2 className="text-2xl font-bold mb-4">接続中...</h2>
@@ -471,7 +473,6 @@
                 );
             }
 
-            // ▼▼▼ ログイン画面の追加 ▼▼▼
             if (!user) {
                 return (
                     <div className="flex flex-col items-center justify-center h-full">
@@ -479,11 +480,11 @@
                             <h1 className="text-4xl font-extrabold text-white mb-4" style={{fontFamily: "'Inter', sans-serif"}}>資格取得管理ダッシュボード</h1>
                             <p className="text-gray-400 mb-8">ログイン方法を選択してください</p>
                             <div className="space-y-4">
-                                <button onClick={handleGoogleLogin} className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-200 text-gray-800 font-bold py-3 px-6 rounded-lg transition-colors">
+                                <button onClick={handleGoogleLogin} disabled={connectionStatus !== 'ready'} className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-200 text-gray-800 font-bold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                                     <svg className="w-6 h-6" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path><path fill="none" d="M0 0h48v48H0z"></path></svg>
                                     Googleでログイン
                                 </button>
-                                <button onClick={handleAnonymousLogin} className="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg transition-colors">
+                                <button onClick={handleAnonymousLogin} disabled={connectionStatus !== 'ready'} className="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                                     匿名で続ける
                                 </button>
                             </div>
@@ -670,6 +671,7 @@
     </script>
 </body>
 </html>
+
 
 
 
