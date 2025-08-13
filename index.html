@@ -1,11 +1,10 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
 import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import { getAuth, onAuthStateChanged, signInAnonymously, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { getAuth, onAuthStateChanged, signInAnonymously, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 const { useState, useEffect, useCallback, useMemo, useRef } = React;
 const { XLSX } = window;
 
-// Firebase接続設定 - この環境の自動認証に対応
-// ユーザーが提供したAPIキーはここで使用されます。
+// Firebase接続設定
 const firebaseConfig = {
     apiKey: "AIzaSyDUfeARP0PATgGlG17Grqit29-U0ya5vhQ", 
     authDomain: "shikaku-dashboard.firebaseapp.com",
@@ -15,7 +14,6 @@ const firebaseConfig = {
     appId: "1:727535626459:web:aaf8fd5a49df92cc9004fe",
     measurementId: "G-C3V0X55D9X"
 };
-
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
 // Chart.js 2Dバブルチャートコンポーネント
@@ -94,11 +92,7 @@ const BubbleChart = ({ data }) => {
     return (
         <div className="relative w-full h-full">
             <canvas ref={canvasRef}></canvas>
-            {(!data || data.length === 0) && (
-                <div className="absolute inset-0 flex items-center justify-center text-gray-500 bg-gray-800/50 rounded-lg p-4 text-center">
-                    表示するデータがありません。<br/>左のフォームから資格情報を追加またはアップロードしてください。
-                </div>
-            )}
+            {(!data || data.length === 0) && <div className="absolute inset-0 flex items-center justify-center text-gray-500 bg-gray-800/50 rounded-lg p-4 text-center">表示するデータがありません。<br/>左のフォームから資格情報を追加またはアップロードしてください。</div>}
         </div>
     );
 };
@@ -144,8 +138,8 @@ const App = () => {
                 } else {
                     await signInAnonymously(auth);
                 }
-
-                // 認証状態の変更を監視
+                
+                // onAuthStateChangedは、signInWith...系の処理後に発火します
                 onAuthStateChanged(auth, (currentUser) => {
                     setUser(currentUser);
                     setLoading(false);
@@ -203,32 +197,26 @@ const App = () => {
             openModal(`データ保存エラー: ${err.message}`);
         }
     }, [user]);
-    
-    // Google認証（ポップアップ方式に変更）
+
     const handleGoogleLogin = async () => {
         if (!firebaseServices.current) return;
         setError(null);
         const { auth } = firebaseServices.current;
         const provider = new GoogleAuthProvider();
-        try {
-            await signInWithPopup(auth, provider);
-        } catch(err) {
-            console.error("Google login popup error:", err);
-            setError("Googleログインに失敗しました。ポップアップがブロックされていないか確認してください。");
-        }
+        await signInWithRedirect(auth, provider).catch(err => {
+            console.error("Google login redirect error:", err);
+            setError("Googleログインの準備に失敗しました。");
+        });
     };
-    
-    // 匿名認証
+
     const handleAnonymousLogin = async () => {
         if (!firebaseServices.current) return;
         setError(null);
         const { auth } = firebaseServices.current;
-        try {
-            await signInAnonymously(auth);
-        } catch(err) {
+        await signInAnonymously(auth).catch(err => {
             console.error("Anonymous login error:", err);
             setError("匿名ログインに失敗しました。");
-        }
+        });
     };
 
     const handleLogout = async () => {
@@ -671,7 +659,6 @@ const App = () => {
         </div>
     );
 };
-
 
 
 
