@@ -33,46 +33,34 @@
 
     <!-- Firebase接続設定 -->
     <script>
+        // ★★★★★重要★★★★★
+        // 以下の YOUR_API_KEY を、ご自身のFirebaseプロジェクトのAPIキーに必ず置き換えてください。
+        // また、Firebaseコンソールで「承認済みドメイン」にアプリをホストしているドメイン
+        // (例: bazuhiroki.github.io) を追加する必要があります。
         const __firebase_config = JSON.stringify({
-            apiKey: "AIzaSyDUf6RP8PATGIGi7GRqit29-U8yaSvh0",
+            apiKey: "YOUR_API_KEY", // ← ここを必ず変更してください！
             authDomain: "shikaku-dashboard.firebaseapp.com",
             projectId: "shikaku-dashboard",
-            storageBucket: "shikaku-dashboard.firebasestorage.app",
+            storageBucket: "shikaku-dashboard.appspot.com",
             messagingSenderId: "727535626459",
             appId: "1:727535626459:web:aaf8fd5a49df92cc9004fe",
             measurementId: "G-C3V0X55D9X"
         });
     </script>
-
-    <!-- Firebaseの読み込み -->
-    <script type="module">
+    
+    <!-- Reactコード -->
+    <script type="text/babel" data-type="module">
+        // --- モジュールのインポート ---
+        // Firebase SDKから必要な関数を直接インポートします。
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getAuth, onAuthStateChanged, signInAnonymously, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-
-        window.firebase = {
-            initializeApp,
-            getFirestore,
-            doc,
-            setDoc,
-            onSnapshot,
-            getAuth,
-            onAuthStateChanged,
-            signInAnonymously,
-            GoogleAuthProvider,
-            signInWithRedirect,
-            getRedirectResult,
-            signOut
-        };
-    </script>
-    
-    <!-- Reactコード -->
-    <script type="text/babel">
+        
         const { useState, useEffect, useCallback, useMemo, useRef } = React;
-        const { initializeApp, getFirestore, doc, setDoc, onSnapshot, getAuth, onAuthStateChanged, signInAnonymously, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut } = window.firebase;
+        // グローバルスコープからライブラリを取得します。
         const { uuidv4, XLSX, Chart } = window;
 
-        // --- Chart.js 2Dバブルチャートコンポーネント ---
+        // --- Chart.js 2Dバブルチャートコンポーネント (変更なし) ---
         const BubbleChart = ({ data }) => {
             const canvasRef = useRef(null);
             const chartRef = useRef(null);
@@ -156,7 +144,9 @@
         // --- メインアプリケーションコンポーネント ---
         const App = () => {
             const [user, setUser] = useState(null);
-            const [connectionStatus, setConnectionStatus] = useState('initializing');
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+            
             const [data, setData] = useState({ certifications: [], progress: {} });
             const [currentTab, setCurrentTab] = useState('tab-1');
             const [editingCert, setEditingCert] = useState(null);
@@ -175,52 +165,48 @@
             
             const firebaseServices = useRef(null);
 
-            // Firebaseの初期化
+            // Firebaseの初期化と認証状態の監視
             useEffect(() => {
                 if (firebaseServices.current) return;
 
-                const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
-                if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
-                    setConnectionStatus('failed');
-                    return;
-                }
-                
                 try {
+                    const firebaseConfig = JSON.parse(__firebase_config);
+                    if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "YOUR_API_KEY") {
+                        throw new Error("FirebaseのAPIキーが設定されていません。");
+                    }
                     const app = initializeApp(firebaseConfig);
                     const auth = getAuth(app);
                     const db = getFirestore(app);
                     firebaseServices.current = { app, auth, db };
 
-                    getRedirectResult(auth).catch((error) => {
-                        console.error("Redirect Result Error:", error);
-                        openModal(`Googleログインに失敗しました: ${error.code}`);
+                    getRedirectResult(auth)
+                        .catch((error) => {
+                            console.error("Redirect Result Error:", error);
+                            setError(`Googleログインに失敗しました: ${error.code}`);
+                        });
+
+                    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+                        setUser(currentUser);
+                        setLoading(false);
                     });
 
-                    const unsubscribe = onAuthStateChanged(auth, (user) => {
-                        if (user) {
-                            setUser(user);
-                            setConnectionStatus('connected');
-                        } else {
-                            setUser(null);
-                            setConnectionStatus('ready');
-                        }
-                    });
-                } catch (error) {
-                    console.error("Firebase initialization failed:", error);
-                    setConnectionStatus('failed');
+                    return () => unsubscribe();
+                } catch (err) {
+                    console.error("Firebase Initialization Error:", err);
+                    setError(err.message);
+                    setLoading(false);
                 }
             }, []);
 
             // データの購読
             useEffect(() => {
-                if (connectionStatus !== 'connected' || !user) {
+                if (!user || !firebaseServices.current) {
                     setData({ certifications: [], progress: {} });
                     return;
-                };
+                }
                 
-                const { db } = firebaseServices.current;
-                const appId = JSON.parse(__firebase_config).appId;
-                const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid);
+                const { db, app } = firebaseServices.current;
+                const userDocRef = doc(db, 'artifacts', app.options.appId, 'users', user.uid);
 
                 const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
                     if (docSnap.exists()) {
@@ -232,46 +218,47 @@
                     } else {
                         saveDataToFirestore({ certifications: [], progress: {} }); 
                     }
-                }, (error) => {
-                    openModal(`データの読み込みに失敗しました。エラー: ${error.code}`);
+                }, (err) => {
+                    console.error("Data subscription error:", err);
+                    openModal(`データの読み込みに失敗しました。エラー: ${err.code}`);
                 });
 
                 return () => unsubscribe();
-            }, [connectionStatus, user]);
+            }, [user]);
             
             const saveDataToFirestore = useCallback(async (newData) => {
-                if (connectionStatus !== 'connected' || !user) return;
-                const { db } = firebaseServices.current;
-                const appId = JSON.parse(__firebase_config).appId;
-                const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid);
+                if (!user || !firebaseServices.current) return;
+                const { db, app } = firebaseServices.current;
+                const userDocRef = doc(db, 'artifacts', app.options.appId, 'users', user.uid);
                 try {
                     await setDoc(userDocRef, {
                         certifications: JSON.stringify(newData.certifications),
                         progress: JSON.stringify(newData.progress),
                     }, { merge: true });
                 } catch (err) {
+                    console.error("Save data error:", err);
                     openModal(`データ保存エラー: ${err.message}`);
                 }
-            }, [connectionStatus, user]);
+            }, [user]);
 
             const handleGoogleLogin = async () => {
                 if (!firebaseServices.current) return;
+                setError(null);
                 const { auth } = firebaseServices.current;
                 const provider = new GoogleAuthProvider();
-                try {
-                    await signInWithRedirect(auth, provider);
-                } catch (error) {
-                    openModal(`Googleログイン処理を開始できませんでした: ${error.message}`);
-                }
+                await signInWithRedirect(auth, provider).catch(err => {
+                    console.error("Google login redirect error:", err);
+                    setError("Googleログインの準備に失敗しました。");
+                });
             };
             const handleAnonymousLogin = async () => {
                 if (!firebaseServices.current) return;
+                setError(null);
                 const { auth } = firebaseServices.current;
-                try {
-                    await signInAnonymously(auth);
-                } catch (error) {
-                    openModal(`匿名ログインに失敗しました: ${error.message}`);
-                }
+                await signInAnonymously(auth).catch(err => {
+                    console.error("Anonymous login error:", err);
+                    setError("匿名ログインに失敗しました。");
+                });
             };
             const handleLogout = async () => {
                 if (!firebaseServices.current) return;
@@ -279,7 +266,7 @@
                 await signOut(auth);
             };
 
-
+            // --- 既存のハンドラ (変更なし) ---
             useEffect(() => {
                 if (editingCert) { setCertForm(editingCert); } 
                 else { setCertForm({ name: '', difficulty: 3, necessity: 3, gai: 3 }); }
@@ -452,23 +439,11 @@
                 setLoadingReport(false);
             };
 
-            // 接続状態に応じたUIの表示
-            if (connectionStatus === 'initializing') {
+            // --- UIのレンダリング ---
+            if (loading) {
                 return (
                     <div className="flex flex-col items-center justify-center h-full text-white">
                         <h2 className="text-2xl font-bold mb-4">接続中...</h2>
-                    </div>
-                );
-            }
-            
-            if (connectionStatus === 'failed') {
-                return (
-                    <div className="flex flex-col items-center justify-center h-full text-white p-4">
-                         <div className="bg-red-900/50 border border-red-700 p-8 rounded-lg text-center">
-                            <h2 className="text-3xl font-bold mb-4 text-red-300">接続エラー</h2>
-                            <p className="text-red-200 text-lg">Firebaseに接続できませんでした。</p>
-                            <p className="text-red-200 mt-2">環境設定やFirebaseコンソールの設定を確認してください。</p>
-                        </div>
                     </div>
                 );
             }
@@ -479,12 +454,13 @@
                         <div className="text-center p-8 bg-gray-800 rounded-lg shadow-2xl">
                             <h1 className="text-4xl font-extrabold text-white mb-4" style={{fontFamily: "'Inter', sans-serif"}}>資格取得管理ダッシュボード</h1>
                             <p className="text-gray-400 mb-8">ログイン方法を選択してください</p>
+                            {error && <p className="text-red-400 mb-4 bg-red-900/50 p-3 rounded-md">{error}</p>}
                             <div className="space-y-4">
-                                <button onClick={handleGoogleLogin} disabled={connectionStatus !== 'ready'} className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-200 text-gray-800 font-bold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                <button onClick={handleGoogleLogin} disabled={!!error} className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-200 text-gray-800 font-bold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                                     <svg className="w-6 h-6" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path><path fill="none" d="M0 0h48v48H0z"></path></svg>
                                     Googleでログイン
                                 </button>
-                                <button onClick={handleAnonymousLogin} disabled={connectionStatus !== 'ready'} className="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                <button onClick={handleAnonymousLogin} disabled={!!error} className="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                                     匿名で続ける
                                 </button>
                             </div>
@@ -493,6 +469,7 @@
                 );
             }
 
+            // ログイン後のメインUI
             return (
                 <div className="min-h-screen p-4 relative">
                     {isModalOpen && <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
@@ -671,6 +648,7 @@
     </script>
 </body>
 </html>
+
 
 
 
