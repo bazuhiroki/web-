@@ -1,653 +1,613 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>資格取得管理ダッシュボード</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Noto Sans JP', 'Inter', sans-serif;
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { getAuth, onAuthStateChanged, signInAnonymously, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+const { useState, useEffect, useCallback, useMemo, useRef } = React;
+const { XLSX } = window;
+
+// Firebase接続設定
+const firebaseConfig = {
+    apiKey: "AIzaSyDUfeARP0PATgGlG17Grqit29-U0ya5vhQ", 
+    authDomain: "shikaku-dashboard.firebaseapp.com",
+    projectId: "shikaku-dashboard",
+    storageBucket: "shikaku-dashboard.appspot.com",
+    messagingSenderId: "727535626459",
+    appId: "1:727535626459:web:aaf8fd5a49df92cc9004fe",
+    measurementId: "G-C3V0X55D9X"
+};
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+// Chart.js 2Dバブルチャートコンポーネント
+const BubbleChart = ({ data }) => {
+    const canvasRef = useRef(null);
+    const chartRef = useRef(null);
+
+    useEffect(() => {
+        const currentCanvas = canvasRef.current;
+        if (!currentCanvas || typeof Chart === 'undefined') return;
+
+        if (chartRef.current) {
+            chartRef.current.destroy();
         }
-        /* カスタムスクロールバー */
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #1f2937; }
-        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
-        canvas { display: block; }
-    </style>
-</head>
-<body class="bg-gray-900 text-gray-100">
-    <div id="root" class="h-screen"></div>
 
-    <!-- ライブラリの読み込み -->
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuidv4.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+        const ctx = currentCanvas.getContext('2d');
+        
+        const chartData = {
+            datasets: [{
+                label: '資格',
+                data: data.map(cert => ({
+                    x: cert.difficulty,
+                    y: cert.necessity,
+                    r: cert.gai * 4,
+                    name: cert.name
+                })),
+                backgroundColor: data.map(cert => `hsla(${180 + cert.gai * 20}, 80%, 60%, 0.7)`),
+                borderColor: data.map(cert => `hsla(${180 + cert.gai * 20}, 80%, 40%, 1)`),
+                borderWidth: 1,
+            }]
+        };
 
-    <!-- Firebase接続設定 -->
-    <script>
-        // ★★★★★重要★★★★★
-        // 以下の YOUR_API_KEY を、ご自身のFirebaseプロジェクトのAPIキーに必ず置き換えてください。
-        // また、Firebaseコンソールで「承認済みドメイン」にアプリをホストしているドメイン
-        // (例: bazuhiroki.github.io) を追加する必要があります。
-        const __firebase_config = JSON.stringify({
-            apiKey: "AIzaSyDUfeARP0PATgGlG17Grqit29-U0ya5vhQ", // ← ここを必ず変更してください！
-            authDomain: "shikaku-dashboard.firebaseapp.com",
-            projectId: "shikaku-dashboard",
-            storageBucket: "shikaku-dashboard.appspot.com",
-            messagingSenderId: "727535626459",
-            appId: "1:727535626459:web:aaf8fd5a49df92cc9004fe",
-            measurementId: "G-C3V0X55D9X"
+        const options = {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#1f2937',
+                    titleColor: '#e5e7eb',
+                    bodyColor: '#d1d5db',
+                    callbacks: {
+                        label: function(context) {
+                            const d = context.raw;
+                            return `${d.name} | 難易度: ${d.x}, 必要性: ${d.y}, やりがい: ${d.r / 4}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    title: { display: true, text: '難易度', color: '#9ca3af' },
+                    grid: { color: '#374151' },
+                    ticks: { color: '#9ca3af', stepSize: 1 },
+                    min: 0,
+                    max: 6
+                },
+                y: {
+                    title: { display: true, text: '必要性', color: '#9ca3af' },
+                    grid: { color: '#374151' },
+                    ticks: { color: '#9ca3af', stepSize: 1 },
+                    min: 0,
+                    max: 6
+                }
+            }
+        };
+
+        chartRef.current = new Chart(ctx, {
+            type: 'bubble',
+            data: chartData,
+            options: options
         });
-    </script>
+
+    }, [data]);
+
+    return (
+        <div className="relative w-full h-full">
+            <canvas ref={canvasRef}></canvas>
+            {(!data || data.length === 0) && <div className="absolute inset-0 flex items-center justify-center text-gray-500 bg-gray-800/50 rounded-lg p-4 text-center">表示するデータがありません。<br/>左のフォームから資格情報を追加またはアップロードしてください。</div>}
+        </div>
+    );
+};
+
+// メインアプリケーションコンポーネント
+const App = () => {
+    const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
     
-    <!-- Reactコード -->
-    <script type="text/babel" data-type="module">
-        // --- モジュールのインポート ---
-        // Firebase SDKから必要な関数を直接インポートします。
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { getAuth, onAuthStateChanged, signInAnonymously, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        
-        const { useState, useEffect, useCallback, useMemo, useRef } = React;
-        // グローバルスコープからライブラリを取得します。
-        const { uuidv4, XLSX, Chart } = window;
+    const [data, setData] = useState({ certifications: [], progress: {} });
+    const [currentTab, setCurrentTab] = useState('tab-1');
+    const [editingCert, setEditingCert] = useState(null);
+    const [currentCertId, setCurrentCertId] = useState(null);
+    const [certForm, setCertForm] = useState({ name: '', difficulty: 3, necessity: 3, gai: 3 });
+    const [filters, setFilters] = useState({ difficulty: { min: 1, max: 5 }, necessity: { min: 1, max: 5 }, gai: { min: 1, max: 5 } });
+    const [newMajorItemName, setNewMajorItemName] = useState('');
+    const [newMinorItemName, setNewMinorItemName] = useState('');
+    const [parentMajorItemId, setParentMajorItemId] = useState('');
+    const [loadingReport, setLoadingReport] = useState(false);
+    const [report, setReport] = useState('');
+    const [reporter, setReporter] = useState('熱血コーチ');
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [modalMessage, setModalMessage] = useState('');
+    const [modalAction, setModalAction] = useState(null);
+    
+    const firebaseServices = useRef(null);
 
-        // --- Chart.js 2Dバブルチャートコンポーネント (変更なし) ---
-        const BubbleChart = ({ data }) => {
-            const canvasRef = useRef(null);
-            const chartRef = useRef(null);
+    // Firebaseの初期化と認証状態の監視
+    useEffect(() => {
+        const initFirebase = async () => {
+            if (firebaseServices.current) return;
+            
+            try {
+                const app = initializeApp(firebaseConfig);
+                const auth = getAuth(app);
+                const db = getFirestore(app);
+                firebaseServices.current = { app, auth, db };
 
-            useEffect(() => {
-                const currentCanvas = canvasRef.current;
-                if (!currentCanvas || typeof Chart === 'undefined') return;
-
-                if (chartRef.current) {
-                    chartRef.current.destroy();
+                // キャンバス環境のカスタム認証トークンを使用
+                if (typeof __initial_auth_token !== 'undefined') {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
                 }
 
-                const ctx = currentCanvas.getContext('2d');
-                
-                const chartData = {
-                    datasets: [{
-                        label: '資格',
-                        data: data.map(cert => ({
-                            x: cert.difficulty,
-                            y: cert.necessity,
-                            r: cert.gai * 4,
-                            name: cert.name
-                        })),
-                        backgroundColor: data.map(cert => `hsla(${180 + cert.gai * 20}, 80%, 60%, 0.7)`),
-                        borderColor: data.map(cert => `hsla(${180 + cert.gai * 20}, 80%, 40%, 1)`),
-                        borderWidth: 1,
-                    }]
-                };
-
-                const options = {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: {
-                            backgroundColor: '#1f2937',
-                            titleColor: '#e5e7eb',
-                            bodyColor: '#d1d5db',
-                            callbacks: {
-                                label: function(context) {
-                                    const d = context.raw;
-                                    return `${d.name} | 難易度: ${d.x}, 必要性: ${d.y}, やりがい: ${d.r / 4}`;
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            title: { display: true, text: '難易度', color: '#9ca3af' },
-                            grid: { color: '#374151' },
-                            ticks: { color: '#9ca3af', stepSize: 1 },
-                            min: 0,
-                            max: 6
-                        },
-                        y: {
-                            title: { display: true, text: '必要性', color: '#9ca3af' },
-                            grid: { color: '#374151' },
-                            ticks: { color: '#9ca3af', stepSize: 1 },
-                            min: 0,
-                            max: 6
-                        }
-                    }
-                };
-
-                chartRef.current = new Chart(ctx, {
-                    type: 'bubble',
-                    data: chartData,
-                    options: options
-                });
-
-            }, [data]);
-
-            return (
-                <div className="relative w-full h-full">
-                    <canvas ref={canvasRef}></canvas>
-                    {(!data || data.length === 0) && <div className="absolute inset-0 flex items-center justify-center text-gray-500 bg-gray-800/50 rounded-lg p-4 text-center">表示するデータがありません。<br/>左のフォームから資格情報を追加またはアップロードしてください。</div>}
-                </div>
-            );
-        };
-
-        // --- メインアプリケーションコンポーネント ---
-        const App = () => {
-            const [user, setUser] = useState(null);
-            const [loading, setLoading] = useState(true);
-            const [error, setError] = useState(null);
-            
-            const [data, setData] = useState({ certifications: [], progress: {} });
-            const [currentTab, setCurrentTab] = useState('tab-1');
-            const [editingCert, setEditingCert] = useState(null);
-            const [currentCertId, setCurrentCertId] = useState(null);
-            const [certForm, setCertForm] = useState({ name: '', difficulty: 3, necessity: 3, gai: 3 });
-            const [filters, setFilters] = useState({ difficulty: { min: 1, max: 5 }, necessity: { min: 1, max: 5 }, gai: { min: 1, max: 5 } });
-            const [newMajorItemName, setNewMajorItemName] = useState('');
-            const [newMinorItemName, setNewMinorItemName] = useState('');
-            const [parentMajorItemId, setParentMajorItemId] = useState('');
-            const [loadingReport, setLoadingReport] = useState(false);
-            const [report, setReport] = useState('');
-            const [reporter, setReporter] = useState('熱血コーチ');
-            const [isModalOpen, setIsModalOpen] = useState(false);
-            const [modalMessage, setModalMessage] = useState('');
-            const [modalAction, setModalAction] = useState(null);
-            
-            const firebaseServices = useRef(null);
-
-            // Firebaseの初期化と認証状態の監視
-            useEffect(() => {
-                if (firebaseServices.current) return;
-
-                try {
-                    const firebaseConfig = JSON.parse(__firebase_config);
-                    if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "YOUR_API_KEY") {
-                        throw new Error("FirebaseのAPIキーが設定されていません。");
-                    }
-                    const app = initializeApp(firebaseConfig);
-                    const auth = getAuth(app);
-                    const db = getFirestore(app);
-                    firebaseServices.current = { app, auth, db };
-
-                    getRedirectResult(auth)
-                        .catch((error) => {
-                            console.error("Redirect Result Error:", error);
-                            setError(`Googleログインに失敗しました: ${error.code}`);
-                        });
-
-                    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-                        setUser(currentUser);
-                        setLoading(false);
-                    });
-
-                    return () => unsubscribe();
-                } catch (err) {
-                    console.error("Firebase Initialization Error:", err);
-                    setError(err.message);
+                // 認証状態の変更を監視
+                onAuthStateChanged(auth, (currentUser) => {
+                    setUser(currentUser);
                     setLoading(false);
-                }
-            }, []);
-
-            // データの購読
-            useEffect(() => {
-                if (!user || !firebaseServices.current) {
-                    setData({ certifications: [], progress: {} });
-                    return;
-                }
-                
-                const { db, app } = firebaseServices.current;
-                const userDocRef = doc(db, 'artifacts', app.options.appId, 'users', user.uid);
-
-                const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
-                    if (docSnap.exists()) {
-                        const storedData = docSnap.data();
-                        setData({
-                            certifications: storedData.certifications ? JSON.parse(storedData.certifications) : [],
-                            progress: storedData.progress ? JSON.parse(storedData.progress) : {}
-                        });
-                    } else {
-                        saveDataToFirestore({ certifications: [], progress: {} }); 
-                    }
-                }, (err) => {
-                    console.error("Data subscription error:", err);
-                    openModal(`データの読み込みに失敗しました。エラー: ${err.code}`);
                 });
 
-                return () => unsubscribe();
-            }, [user]);
-            
-            const saveDataToFirestore = useCallback(async (newData) => {
-                if (!user || !firebaseServices.current) return;
-                const { db, app } = firebaseServices.current;
-                const userDocRef = doc(db, 'artifacts', app.options.appId, 'users', user.uid);
-                try {
-                    await setDoc(userDocRef, {
-                        certifications: JSON.stringify(newData.certifications),
-                        progress: JSON.stringify(newData.progress),
-                    }, { merge: true });
-                } catch (err) {
-                    console.error("Save data error:", err);
-                    openModal(`データ保存エラー: ${err.message}`);
-                }
-            }, [user]);
-
-            const handleGoogleLogin = async () => {
-                if (!firebaseServices.current) return;
-                setError(null);
-                const { auth } = firebaseServices.current;
-                const provider = new GoogleAuthProvider();
-                await signInWithRedirect(auth, provider).catch(err => {
-                    console.error("Google login redirect error:", err);
-                    setError("Googleログインの準備に失敗しました。");
-                });
-            };
-            const handleAnonymousLogin = async () => {
-                if (!firebaseServices.current) return;
-                setError(null);
-                const { auth } = firebaseServices.current;
-                await signInAnonymously(auth).catch(err => {
-                    console.error("Anonymous login error:", err);
-                    setError("匿名ログインに失敗しました。");
-                });
-            };
-            const handleLogout = async () => {
-                if (!firebaseServices.current) return;
-                const { auth } = firebaseServices.current;
-                await signOut(auth);
-            };
-
-            // --- 既存のハンドラ (変更なし) ---
-            useEffect(() => {
-                if (editingCert) { setCertForm(editingCert); } 
-                else { setCertForm({ name: '', difficulty: 3, necessity: 3, gai: 3 }); }
-            }, [editingCert]);
-
-            const openModal = (message, onConfirm = null) => {
-                setModalMessage(message);
-                setModalAction(() => onConfirm);
-                setIsModalOpen(true);
-            };
-            const closeModal = () => setIsModalOpen(false);
-            const handleFormChange = (e) => {
-                const { name, value } = e.target;
-                setCertForm(prev => ({ ...prev, [name]: value }));
-            };
-            const handleAddUpdateCert = async () => {
-                if (!certForm.name.trim()) { openModal('資格名を入力してください。'); return; }
-                const newCert = { ...certForm, id: editingCert ? editingCert.id : uuidv4(), difficulty: Number(certForm.difficulty), necessity: Number(certForm.necessity), gai: Number(certForm.gai) };
-                const updatedCerts = editingCert ? data.certifications.map(c => c.id === newCert.id ? newCert : c) : [...data.certifications, newCert];
-                await saveDataToFirestore({ ...data, certifications: updatedCerts });
-                setEditingCert(null);
-            };
-            const handleDeleteCert = (id) => {
-                openModal('この資格情報を削除しますか？', async () => {
-                    const updatedCerts = data.certifications.filter(c => c.id !== id);
-                    const updatedProgress = { ...data.progress };
-                    delete updatedProgress[id];
-                    await saveDataToFirestore({ certifications: updatedCerts, progress: updatedProgress });
-                    if (currentCertId === id) setCurrentCertId(null);
-                    closeModal();
-                });
-            };
-            const handleFilterChange = (filterName, type, value) => {
-                setFilters(prev => {
-                    const newFilter = { ...prev[filterName], [type]: Number(value) };
-                    if (type === 'min' && newFilter.min > newFilter.max) newFilter.max = newFilter.min;
-                    if (type === 'max' && newFilter.max < newFilter.min) newFilter.min = newFilter.max;
-                    return { ...prev, [filterName]: newFilter };
-                });
-            };
-            const handleCertFileUpload = (e) => {
-                const file = e.target.files[0]; if (!file) return;
-                const reader = new FileReader();
-                reader.onload = async (event) => {
-                    try {
-                        let newCerts = [];
-                        if (file.name.endsWith('.json')) { newCerts = JSON.parse(event.target.result).map(c => ({...c, id: c.id || uuidv4()})); } 
-                        else if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
-                            const wb = XLSX.read(event.target.result, { type: 'binary' });
-                            const ws = wb.Sheets[wb.SheetNames[0]];
-                            const jsonData = XLSX.utils.sheet_to_json(ws, { header: ['name', 'difficulty', 'necessity', 'gai'], range: 1 });
-                            newCerts = jsonData.filter(c => c.name && !isNaN(c.difficulty) && !isNaN(c.necessity) && !isNaN(c.gai)).map(c => ({...c, id: uuidv4()}));
-                        }
-                        if (newCerts.length > 0) {
-                            await saveDataToFirestore({ ...data, certifications: newCerts });
-                            openModal(`${newCerts.length}件の資格情報をアップロードしました。`);
-                        } else { openModal('有効なデータが見つかりませんでした。'); }
-                    } catch (error) { openModal(`ファイルの読み込みに失敗しました: ${error.message}`); }
-                };
-                reader.readAsBinaryString(file); e.target.value = null;
-            };
-            const handleProgressFileUpload = (e) => {
-                const file = e.target.files[0]; if (!file || !currentCertId) { openModal("先に学習中の資格を選択してください。"); return; }
-                const reader = new FileReader();
-                reader.onload = async (event) => {
-                    try {
-                        const workbook = XLSX.read(event.target.result, { type: 'binary' });
-                        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-                        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-                        const items = {}; let currentMajorItemKey = null;
-                        jsonData.forEach(row => {
-                            const cellValue = row[0];
-                            if (typeof cellValue === 'string' && cellValue.trim() !== '') {
-                                const trimmedValue = cellValue.trim();
-                                if (trimmedValue.startsWith('●')) {
-                                    currentMajorItemKey = uuidv4();
-                                    items[currentMajorItemKey] = { name: trimmedValue.substring(1).trim(), checked: false, type: 'major', subItems: {} };
-                                } else if ((trimmedValue.startsWith('・') || trimmedValue.startsWith('-')) && currentMajorItemKey) {
-                                    const subItemKey = uuidv4();
-                                    items[currentMajorItemKey].subItems[subItemKey] = { name: trimmedValue.substring(1).trim(), checked: false, type: 'minor' };
-                                }
-                            }
-                        });
-                        const updatedProgress = { ...data.progress, [currentCertId]: { ...(data.progress[currentCertId] || {}), items } };
-                        await saveDataToFirestore({ ...data, progress: updatedProgress });
-                        openModal('学習項目のアップロードが完了しました！');
-                    } catch (error) { openModal(`ファイルの読み込み中にエラーが発生しました: ${error.message}`); }
-                };
-                reader.readAsBinaryString(file);
-            };
-            const handleProgressCheckbox = async (minorId, majorId) => {
-                const updatedProgress = JSON.parse(JSON.stringify(data.progress));
-                const certProgress = updatedProgress[currentCertId];
-                if (certProgress?.items?.[majorId]?.subItems?.[minorId]) {
-                    certProgress.items[majorId].subItems[minorId].checked = !certProgress.items[majorId].subItems[minorId].checked;
-                    certProgress.items[majorId].checked = Object.values(certProgress.items[majorId].subItems).every(item => item.checked);
-                    await saveDataToFirestore({ ...data, progress: updatedProgress });
-                }
-            };
-            const handleAddMajorItem = async () => {
-                if (!currentCertId || !newMajorItemName.trim()) return;
-                const updatedProgress = JSON.parse(JSON.stringify(data.progress));
-                const currentCertProgress = updatedProgress[currentCertId] || { items: {} };
-                const newMajorKey = uuidv4();
-                currentCertProgress.items[newMajorKey] = { name: newMajorItemName.trim(), checked: false, type: 'major', subItems: {} };
-                updatedProgress[currentCertId] = currentCertProgress;
-                await saveDataToFirestore({ ...data, progress: updatedProgress });
-                setNewMajorItemName('');
-            };
-            const handleAddMinorItem = async () => {
-                if (!currentCertId || !newMinorItemName.trim() || !parentMajorItemId) return;
-                const updatedProgress = JSON.parse(JSON.stringify(data.progress));
-                const currentCertProgress = updatedProgress[currentCertId];
-                if (currentCertProgress?.items?.[parentMajorItemId]) {
-                    const newMinorKey = uuidv4();
-                    currentCertProgress.items[parentMajorItemId].subItems[newMinorKey] = { name: newMinorItemName.trim(), checked: false, type: 'minor' };
-                    await saveDataToFirestore({ ...data, progress: updatedProgress });
-                    setNewMinorItemName('');
-                }
-            };
-            const filteredCerts = useMemo(() => {
-                return data.certifications.filter(cert => 
-                    cert.difficulty >= filters.difficulty.min && cert.difficulty <= filters.difficulty.max &&
-                    cert.necessity >= filters.necessity.min && cert.necessity <= filters.necessity.max &&
-                    cert.gai >= filters.gai.min && cert.gai <= filters.gai.max
-                );
-            }, [data.certifications, filters]);
-            
-            const generateReport = async () => {
-                setLoadingReport(true); setReport('');
-                try {
-                    const certInfo = data.certifications.find(c => c.id === currentCertId);
-                    const progressData = data.progress[currentCertId];
-                    if (!certInfo || !progressData || !progressData.items) throw new Error('レポート生成に必要な進捗データがありません。');
-                    let total = 0, checked = 0;
-                    Object.values(progressData.items).forEach(major => {
-                        total += Object.keys(major.subItems || {}).length;
-                        checked += Object.values(major.subItems || {}).filter(sub => sub.checked).length;
-                    });
-                    const progressPercent = total > 0 ? (checked / total) * 100 : 0;
-                    const prompt = `あなたは「${reporter}」です。以下の学習進捗について、そのキャラクターになりきって学習者を力強く励ます評価と次に取り組むべきアクションを提案してください。レポートは情熱的かつ分かりやすく、markdown形式で記述してください。\n### 学習進捗レポート\n- **資格名**: ${certInfo.name}\n- **総学習項目数**: ${total}\n- **完了項目数**: ${checked}\n- **進捗率**: ${progressPercent.toFixed(1)}%`;
-                    
-                    const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
-                    const apiKey = ""; 
-                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-                    
-                    const response = await fetch(apiUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-
-                    if (!response.ok) {
-                        throw new Error(`API error: ${response.status} ${response.statusText}`);
-                    }
-
-                    const result = await response.json();
-                    const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-                    if (text) {
-                        setReport(text);
-                    } else {
-                        throw new Error('レポートのテキストが取得できませんでした。');
-                    }
-
-                } catch (error) { 
-                    console.error("Report generation failed:", error);
-                    setReport(`レポート生成中にエラーが発生しました: ${error.message}`); 
-                }
-                setLoadingReport(false);
-            };
-
-            // --- UIのレンダリング ---
-            if (loading) {
-                return (
-                    <div className="flex flex-col items-center justify-center h-full text-white">
-                        <h2 className="text-2xl font-bold mb-4">接続中...</h2>
-                    </div>
-                );
+            } catch (err) {
+                console.error("Firebase Initialization Error:", err);
+                setError(err.message);
+                setLoading(false);
             }
-
-            if (!user) {
-                return (
-                    <div className="flex flex-col items-center justify-center h-full">
-                        <div className="text-center p-8 bg-gray-800 rounded-lg shadow-2xl">
-                            <h1 className="text-4xl font-extrabold text-white mb-4" style={{fontFamily: "'Inter', sans-serif"}}>資格取得管理ダッシュボード</h1>
-                            <p className="text-gray-400 mb-8">ログイン方法を選択してください</p>
-                            {error && <p className="text-red-400 mb-4 bg-red-900/50 p-3 rounded-md">{error}</p>}
-                            <div className="space-y-4">
-                                <button onClick={handleGoogleLogin} disabled={!!error} className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-200 text-gray-800 font-bold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                                    <svg className="w-6 h-6" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path><path fill="none" d="M0 0h48v48H0z"></path></svg>
-                                    Googleでログイン
-                                </button>
-                                <button onClick={handleAnonymousLogin} disabled={!!error} className="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                                    匿名で続ける
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                );
-            }
-
-            // ログイン後のメインUI
-            return (
-                <div className="min-h-screen p-4 relative">
-                    {isModalOpen && <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
-                        <div className="bg-gray-800 p-6 rounded-lg shadow-xl max-w-sm w-full mx-4">
-                            <p className="text-white mb-6" style={{whiteSpace: 'pre-wrap'}}>{modalMessage}</p>
-                            <div className="flex justify-end space-x-4">
-                                {modalAction && <button onClick={() => { modalAction(); closeModal(); }} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg">はい</button>}
-                                <button onClick={closeModal} className="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg">{modalAction ? 'キャンセル' : '閉じる'}</button>
-                            </div>
-                        </div>
-                    </div>}
-                    <header className="text-center mb-8">
-                        <div className="flex justify-center items-center relative">
-                            <h1 className="text-4xl font-extrabold text-white" style={{fontFamily: "'Inter', sans-serif"}}>資格取得管理ダッシュボード</h1>
-                            <button onClick={handleLogout} className="absolute right-0 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg">ログアウト</button>
-                        </div>
-                        <div className="mt-2 text-xs text-gray-500 font-mono">ユーザー: {user.isAnonymous ? `ゲスト (${user.uid.substring(0,6)}...)` : user.displayName || 'Googleユーザー'}</div>
-                    </header>
-                    <nav className="mb-8 border-b border-gray-700">
-                        <div className="flex justify-center space-x-4">
-                            {[{id: 'tab-1', label: '優先順位付け'}, {id: 'tab-2', label: '進捗管理'}, {id: 'tab-3', label: 'レポート'}].map(tab => (
-                                <button key={tab.id} onClick={() => setCurrentTab(tab.id)} className={`py-2 px-4 font-bold rounded-t-lg ${currentTab === tab.id ? 'bg-gray-800 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}>
-                                    {tab.label}
-                                </button>
-                            ))}
-                        </div>
-                    </nav>
-                    <main>
-                        {currentTab === 'tab-1' && <div className="flex flex-col lg:flex-row p-4 gap-4">
-                            <div className="w-full lg:w-1/3 space-y-4">
-                                <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                                    <h3 className="text-xl font-bold mb-2">1. 資格情報アップロード</h3>
-                                    <p className="text-sm text-gray-400 mb-2">Excel(.xlsx)またはJSON(.json)形式。<br/>Excel: A列=資格名, B=難易度, C=必要性, D=やりがい (2行目から)</p>
-                                    <input type="file" accept=".json,.xlsx,.xls" onChange={handleCertFileUpload} className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100 cursor-pointer"/>
-                                </div>
-                                <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                                    <h3 className="text-xl font-bold mb-4">2. フィルター</h3>
-                                    {['difficulty', 'necessity', 'gai'].map(key => {
-                                        const labels = {difficulty: '難易度', necessity: '必要性', gai: 'やりがい'};
-                                        return (
-                                        <div key={key} className="mb-2">
-                                            <label className="block text-sm font-medium mb-1">{labels[key]} ({filters[key].min} - {filters[key].max})</label>
-                                            <div className="flex items-center space-x-2">
-                                                <span>1</span>
-                                                <input type="range" min="1" max="5" value={filters[key].min} onChange={e => handleFilterChange(key, 'min', e.target.value)} className="w-full" />
-                                                <input type="range" min="1" max="5" value={filters[key].max} onChange={e => handleFilterChange(key, 'max', e.target.value)} className="w-full" />
-                                                <span>5</span>
-                                            </div>
-                                        </div>
-                                    )})}
-                                </div>
-                                <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                                    <h3 className="text-xl font-bold mb-4">{editingCert ? '資格情報の編集' : '3. 資格情報の手動追加'}</h3>
-                                    <div className="space-y-4">
-                                        <input type="text" name="name" value={certForm.name} onChange={handleFormChange} placeholder="資格名" className="w-full p-2 bg-gray-700 rounded-md"/>
-                                        {['difficulty', 'necessity', 'gai'].map(key => (
-                                        <div key={key}>
-                                            <label className="block text-sm font-medium mb-1">{({difficulty: '難易度', necessity: '必要性', gai: 'やりがい'})[key]} (1-5)</label>
-                                            <input type="number" name={key} value={certForm[key]} onChange={handleFormChange} min="1" max="5" className="w-full p-2 bg-gray-700 rounded-md"/>
-                                        </div>
-                                        ))}
-                                        <button onClick={handleAddUpdateCert} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">{editingCert ? '更新' : '追加'}</button>
-                                        {editingCert && <button onClick={() => setEditingCert(null)} className="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg mt-2">キャンセル</button>}
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="w-full lg:w-2/3 space-y-4">
-                                <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                                    <div className="w-full h-[60vh] min-h-[400px]">
-                                        <BubbleChart data={filteredCerts} />
-                                    </div>
-                                </div>
-                                <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                                    <h3 className="text-xl font-bold mb-4">資格一覧</h3>
-                                    <div className="overflow-auto max-h-[40vh]">
-                                        <table className="min-w-full divide-y divide-gray-700">
-                                            <thead className="bg-gray-700 sticky top-0"><tr>{['資格名', '難易度', '必要性', 'やりがい', 'アクション'].map(h => <th key={h} className="px-4 py-2 text-left text-xs font-medium text-gray-300 uppercase">{h}</th>)}</tr></thead>
-                                            <tbody className="bg-gray-800 divide-y divide-gray-700">
-                                                {filteredCerts.length > 0 ? filteredCerts.map(cert => (
-                                                    <tr key={cert.id} className="hover:bg-gray-700/50">
-                                                        <td className="px-4 py-2 text-sm font-medium text-white">{cert.name}</td>
-                                                        <td className="px-4 py-2 text-sm text-gray-300">{cert.difficulty}</td>
-                                                        <td className="px-4 py-2 text-sm text-gray-300">{cert.necessity}</td>
-                                                        <td className="px-4 py-2 text-sm text-gray-300">{cert.gai}</td>
-                                                        <td className="px-4 py-2 text-sm font-medium space-x-2">
-                                                            <button onClick={() => setEditingCert(cert)} className="text-indigo-400 hover:text-indigo-600">編集</button>
-                                                            <button onClick={() => handleDeleteCert(cert.id)} className="text-red-400 hover:text-red-600">削除</button>
-                                                        </td>
-                                                    </tr>
-                                                )) : (<tr><td colSpan="5" className="text-center py-4 text-gray-500">該当する資格がありません。</td></tr>)}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>}
-                        {currentTab === 'tab-2' && <div className="flex flex-col lg:flex-row p-4 gap-4">
-                            <div className="w-full lg:w-1/3 space-y-4">
-                                <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                                    <h3 className="text-xl font-bold mb-4">学習中の資格設定</h3>
-                                    <select value={currentCertId || ''} onChange={(e) => setCurrentCertId(e.target.value)} className="w-full p-2 bg-gray-700 rounded-md mb-4">
-                                        <option value="">資格を選択...</option>
-                                        {data.certifications.map((cert) => <option key={cert.id} value={cert.id}>{cert.name}</option>)}
-                                    </select>
-                                    <label className="block text-sm font-medium mb-1">目標取得日</label>
-                                    <input type="date" value={data.progress[currentCertId]?.targetDate || ''} onChange={async (e) => {
-                                        if (!currentCertId) return;
-                                        const updatedProgress = { ...data.progress, [currentCertId]: { ...(data.progress[currentCertId] || {}), targetDate: e.target.value } };
-                                        await saveDataToFirestore({ ...data, progress: updatedProgress });
-                                    }} className="w-full p-2 bg-gray-700 rounded-md"/>
-                                </div>
-                                <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                                    <h3 className="text-xl font-bold mb-4">学習項目アップロード/追加</h3>
-                                    <p className="text-sm text-gray-400 mb-2">Excelファイルをアップロード (●:大項目, ・:小項目)</p>
-                                    <input type="file" accept=".xlsx" onChange={handleProgressFileUpload} className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100 cursor-pointer"/>
-                                    <div className="mt-4 border-t border-gray-700 pt-4 space-y-2">
-                                        <h4 className="text-lg font-bold mb-2">手動で追加</h4>
-                                        <input type="text" value={newMajorItemName} onChange={(e) => setNewMajorItemName(e.target.value)} placeholder="大項目名" className="w-full p-2 bg-gray-700 rounded-md"/>
-                                        <button onClick={handleAddMajorItem} disabled={!currentCertId} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">大項目を追加</button>
-                                        <select value={parentMajorItemId} onChange={(e) => setParentMajorItemId(e.target.value)} className="w-full p-2 bg-gray-700 rounded-md mt-4">
-                                            <option value="">親となる大項目を選択...</option>
-                                            {Object.entries(data.progress[currentCertId]?.items || {}).map(([key, item]) => <option key={key} value={key}>{item.name}</option>)}
-                                        </select>
-                                        <input type="text" value={newMinorItemName} onChange={(e) => setNewMinorItemName(e.target.value)} placeholder="小項目名" className="w-full p-2 bg-gray-700 rounded-md"/>
-                                        <button onClick={handleAddMinorItem} disabled={!parentMajorItemId} className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">小項目を追加</button>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="w-full lg:w-2/3 space-y-4">
-                                <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                                    <h3 className="text-xl font-bold mb-4">{data.certifications.find(c => c.id === currentCertId)?.name || '資格を選択してください'}</h3>
-                                    <div className="w-full bg-gray-700 rounded-full h-4 mb-4">
-                                        <div className="bg-green-500 h-4 rounded-full text-xs flex items-center justify-center text-white font-bold" style={{ width: `${data.progress[currentCertId] ? (Object.values(data.progress[currentCertId].items || {}).reduce((acc, major) => acc + Object.values(major.subItems || {}).filter(sub => sub.checked).length, 0) / (Object.values(data.progress[currentCertId].items || {}).reduce((acc, major) => acc + Object.keys(major.subItems || {}).length, 0) || 1) * 100).toFixed(1) : 0}%` }}>
-                                            {data.progress[currentCertId] ? (Object.values(data.progress[currentCertId].items || {}).reduce((acc, major) => acc + Object.values(major.subItems || {}).filter(sub => sub.checked).length, 0) / (Object.values(data.progress[currentCertId].items || {}).reduce((acc, major) => acc + Object.keys(major.subItems || {}).length, 0) || 1) * 100).toFixed(1) : 0}%
-                                        </div>
-                                    </div>
-                                    <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2">
-                                        {Object.entries(data.progress[currentCertId]?.items || {}).map(([majorKey, majorItem]) => (
-                                            <div key={majorKey} className="p-2 rounded bg-gray-700/50">
-                                                <h5 className="font-bold mb-1">{majorItem.name}</h5>
-                                                <div className="pl-4 space-y-1">
-                                                    {Object.entries(majorItem.subItems || {}).map(([minorKey, minorItem]) => (
-                                                        <label key={minorKey} className="flex items-center space-x-2 cursor-pointer">
-                                                            <input type="checkbox" checked={minorItem.checked} onChange={() => handleProgressCheckbox(minorKey, majorKey)} className="form-checkbox h-4 w-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500" />
-                                                            <span className={`text-gray-300 ${minorItem.checked ? 'line-through text-gray-500' : ''}`}>{minorItem.name}</span>
-                                                        </label>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>}
-                        {currentTab === 'tab-3' && <div className="flex flex-col p-4 space-y-4">
-                            <div className="bg-gray-800 p-4 rounded-lg shadow-lg w-full max-w-4xl mx-auto">
-                                <h3 className="text-xl font-bold mb-4">AI進捗レポート</h3>
-                                <p className="text-sm text-gray-400 mb-4">進捗管理タブで資格を選択後、AIがあなたにアドバイスを送ります。</p>
-                                <div className="mb-4">
-                                    <label className="block text-sm font-medium mb-1">レポート者（著名人やキャラクター名）</label>
-                                    <input type="text" value={reporter} onChange={(e) => setReporter(e.target.value)} placeholder="例：スティーブ・ジョブズ" className="w-full p-2 bg-gray-700 rounded-md"/>
-                                </div>
-                                <button onClick={generateReport} className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-500 disabled:cursor-not-allowed" disabled={loadingReport || !currentCertId}>
-                                    {loadingReport ? '生成中...' : 'レポートを生成'}
-                                </button>
-                                {report && <div className="mt-4 p-4 bg-gray-700 rounded-lg whitespace-pre-wrap leading-relaxed" dangerouslySetInnerHTML={{ __html: report.replace(/\n/g, '<br />') }}></div>}
-                            </div>
-                        </div>}
-                    </main>
-                </div>
-            );
         };
+
+        initFirebase();
+    }, []);
+
+    // データの購読
+    useEffect(() => {
+        if (!user || !firebaseServices.current) {
+            setData({ certifications: [], progress: {} });
+            return;
+        }
         
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-</body>
-</html>
+        const { db } = firebaseServices.current;
+        const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid);
+
+        const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const storedData = docSnap.data();
+                setData({
+                    certifications: storedData.certifications ? JSON.parse(storedData.certifications) : [],
+                    progress: storedData.progress ? JSON.parse(storedData.progress) : {}
+                });
+            } else {
+                saveDataToFirestore({ certifications: [], progress: {} }); 
+            }
+        }, (err) => {
+            console.error("Data subscription error:", err);
+            openModal(`データの読み込みに失敗しました。エラー: ${err.code}`);
+        });
+
+        return () => unsubscribe();
+    }, [user]);
+    
+    const saveDataToFirestore = useCallback(async (newData) => {
+        if (!user || !firebaseServices.current) return;
+        const { db } = firebaseServices.current;
+        const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid);
+        try {
+            await setDoc(userDocRef, {
+                certifications: JSON.stringify(newData.certifications),
+                progress: JSON.stringify(newData.progress),
+            }, { merge: true });
+        } catch (err) {
+            console.error("Save data error:", err);
+            openModal(`データ保存エラー: ${err.message}`);
+        }
+    }, [user]);
+    
+    // Google認証（ポップアップ方式に変更）
+    const handleGoogleLogin = async () => {
+        if (!firebaseServices.current) return;
+        setError(null);
+        const { auth } = firebaseServices.current;
+        const provider = new GoogleAuthProvider();
+        try {
+            await signInWithPopup(auth, provider);
+        } catch(err) {
+            console.error("Google login popup error:", err);
+            setError("Googleログインに失敗しました。ポップアップがブロックされていないか確認してください。");
+        }
+    };
+    
+    // 匿名認証
+    const handleAnonymousLogin = async () => {
+        if (!firebaseServices.current) return;
+        setError(null);
+        const { auth } = firebaseServices.current;
+        try {
+            await signInAnonymously(auth);
+        } catch(err) {
+            console.error("Anonymous login error:", err);
+            setError("匿名ログインに失敗しました。");
+        }
+    };
+
+    const handleLogout = async () => {
+        if (!firebaseServices.current) return;
+        const { auth } = firebaseServices.current;
+        await signOut(auth);
+    };
+
+    // --- 既存のハンドラ (変更なし) ---
+    useEffect(() => {
+        if (editingCert) { setCertForm(editingCert); } 
+        else { setCertForm({ name: '', difficulty: 3, necessity: 3, gai: 3 }); }
+    }, [editingCert]);
+
+    const openModal = (message, onConfirm = null) => {
+        setModalMessage(message);
+        setModalAction(() => onConfirm);
+        setIsModalOpen(true);
+    };
+    const closeModal = () => setIsModalOpen(false);
+    const handleFormChange = (e) => {
+        const { name, value } = e.target;
+        setCertForm(prev => ({ ...prev, [name]: value }));
+    };
+    const handleAddUpdateCert = async () => {
+        if (!certForm.name.trim()) { openModal('資格名を入力してください。'); return; }
+        const newCert = { ...certForm, id: editingCert ? editingCert.id : crypto.randomUUID(), difficulty: Number(certForm.difficulty), necessity: Number(certForm.necessity), gai: Number(certForm.gai) };
+        const updatedCerts = editingCert ? data.certifications.map(c => c.id === newCert.id ? newCert : c) : [...data.certifications, newCert];
+        await saveDataToFirestore({ ...data, certifications: updatedCerts });
+        setEditingCert(null);
+    };
+    const handleDeleteCert = (id) => {
+        openModal('この資格情報を削除しますか？', async () => {
+            const updatedCerts = data.certifications.filter(c => c.id !== id);
+            const updatedProgress = { ...data.progress };
+            delete updatedProgress[id];
+            await saveDataToFirestore({ certifications: updatedCerts, progress: updatedProgress });
+            if (currentCertId === id) setCurrentCertId(null);
+            closeModal();
+        });
+    };
+    const handleFilterChange = (filterName, type, value) => {
+        setFilters(prev => {
+            const newFilter = { ...prev[filterName], [type]: Number(value) };
+            if (type === 'min' && newFilter.min > newFilter.max) newFilter.max = newFilter.min;
+            if (type === 'max' && newFilter.max < newFilter.min) newFilter.min = newFilter.max;
+            return { ...prev, [filterName]: newFilter };
+        });
+    };
+    const handleCertFileUpload = (e) => {
+        const file = e.target.files[0]; if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                let newCerts = [];
+                if (file.name.endsWith('.json')) { newCerts = JSON.parse(event.target.result).map(c => ({...c, id: c.id || crypto.randomUUID()})); } 
+                else if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+                    const wb = XLSX.read(event.target.result, { type: 'binary' });
+                    const ws = wb.Sheets[wb.SheetNames[0]];
+                    const jsonData = XLSX.utils.sheet_to_json(ws, { header: ['name', 'difficulty', 'necessity', 'gai'], range: 1 });
+                    newCerts = jsonData.filter(c => c.name && !isNaN(c.difficulty) && !isNaN(c.necessity) && !isNaN(c.gai)).map(c => ({...c, id: crypto.randomUUID()}));
+                }
+                if (newCerts.length > 0) {
+                    await saveDataToFirestore({ ...data, certifications: newCerts });
+                    openModal(`${newCerts.length}件の資格情報をアップロードしました。`);
+                } else { openModal('有効なデータが見つかりませんでした。'); }
+            } catch (error) { openModal(`ファイルの読み込みに失敗しました: ${error.message}`); }
+        };
+        reader.readAsBinaryString(file); e.target.value = null;
+    };
+    const handleProgressFileUpload = (e) => {
+        const file = e.target.files[0]; if (!file || !currentCertId) { openModal("先に学習中の資格を選択してください。"); return; }
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                const workbook = XLSX.read(event.target.result, { type: 'binary' });
+                const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                const items = {}; let currentMajorItemKey = null;
+                jsonData.forEach(row => {
+                    const cellValue = row[0];
+                    if (typeof cellValue === 'string' && cellValue.trim() !== '') {
+                        const trimmedValue = cellValue.trim();
+                        if (trimmedValue.startsWith('●')) {
+                            currentMajorItemKey = crypto.randomUUID();
+                            items[currentMajorItemKey] = { name: trimmedValue.substring(1).trim(), checked: false, type: 'major', subItems: {} };
+                        } else if ((trimmedValue.startsWith('・') || trimmedValue.startsWith('-')) && currentMajorItemKey) {
+                            const subItemKey = crypto.randomUUID();
+                            items[currentMajorItemKey].subItems[subItemKey] = { name: trimmedValue.substring(1).trim(), checked: false, type: 'minor' };
+                        }
+                    }
+                });
+                const updatedProgress = { ...data.progress, [currentCertId]: { ...(data.progress[currentCertId] || {}), items } };
+                await saveDataToFirestore({ ...data, progress: updatedProgress });
+                openModal('学習項目のアップロードが完了しました！');
+            } catch (error) { openModal(`ファイルの読み込み中にエラーが発生しました: ${error.message}`); }
+        };
+        reader.readAsBinaryString(file);
+    };
+    const handleProgressCheckbox = async (minorId, majorId) => {
+        const updatedProgress = JSON.parse(JSON.stringify(data.progress));
+        const certProgress = updatedProgress[currentCertId];
+        if (certProgress?.items?.[majorId]?.subItems?.[minorId]) {
+            certProgress.items[majorId].subItems[minorId].checked = !certProgress.items[majorId].subItems[minorId].checked;
+            certProgress.items[majorId].checked = Object.values(certProgress.items[majorId].subItems).every(item => item.checked);
+            await saveDataToFirestore({ ...data, progress: updatedProgress });
+        }
+    };
+    const handleAddMajorItem = async () => {
+        if (!currentCertId || !newMajorItemName.trim()) return;
+        const updatedProgress = JSON.parse(JSON.stringify(data.progress));
+        const currentCertProgress = updatedProgress[currentCertId] || { items: {} };
+        const newMajorKey = crypto.randomUUID();
+        currentCertProgress.items[newMajorKey] = { name: newMajorItemName.trim(), checked: false, type: 'major', subItems: {} };
+        updatedProgress[currentCertId] = currentCertProgress;
+        await saveDataToFirestore({ ...data, progress: updatedProgress });
+        setNewMajorItemName('');
+    };
+    const handleAddMinorItem = async () => {
+        if (!currentCertId || !newMinorItemName.trim() || !parentMajorItemId) return;
+        const updatedProgress = JSON.parse(JSON.stringify(data.progress));
+        const currentCertProgress = updatedProgress[currentCertId];
+        if (currentCertProgress?.items?.[parentMajorItemId]) {
+            const newMinorKey = crypto.randomUUID();
+            currentCertProgress.items[parentMajorItemId].subItems[newMinorKey] = { name: newMinorItemName.trim(), checked: false, type: 'minor' };
+            await saveDataToFirestore({ ...data, progress: updatedProgress });
+            setNewMinorItemName('');
+        }
+    };
+    const filteredCerts = useMemo(() => {
+        return data.certifications.filter(cert => 
+            cert.difficulty >= filters.difficulty.min && cert.difficulty <= filters.difficulty.max &&
+            cert.necessity >= filters.necessity.min && cert.necessity <= filters.necessity.max &&
+            cert.gai >= filters.gai.min && cert.gai <= filters.gai.max
+        );
+    }, [data.certifications, filters]);
+    
+    const generateReport = async () => {
+        setLoadingReport(true); setReport('');
+        try {
+            const certInfo = data.certifications.find(c => c.id === currentCertId);
+            const progressData = data.progress[currentCertId];
+            if (!certInfo || !progressData || !progressData.items) throw new Error('レポート生成に必要な進捗データがありません。');
+            let total = 0, checked = 0;
+            Object.values(progressData.items).forEach(major => {
+                total += Object.keys(major.subItems || {}).length;
+                checked += Object.values(major.subItems || {}).filter(sub => sub.checked).length;
+            });
+            const progressPercent = total > 0 ? (checked / total) * 100 : 0;
+            const prompt = `あなたは「${reporter}」です。以下の学習進捗について、そのキャラクターになりきって学習者を力強く励ます評価と次に取り組むべきアクションを提案してください。レポートは情熱的かつ分かりやすく、markdown形式で記述してください。\n### 学習進捗レポート\n- **資格名**: ${certInfo.name}\n- **総学習項目数**: ${total}\n- **完了項目数**: ${checked}\n- **進捗率**: ${progressPercent.toFixed(1)}%`;
+            
+            const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
+            const apiKey = ""; 
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+            
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                throw new Error(`API error: ${response.status} ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+            if (text) {
+                setReport(text);
+            } else {
+                throw new Error('レポートのテキストが取得できませんでした。');
+            }
+
+        } catch (error) { 
+            console.error("Report generation failed:", error);
+            setReport(`レポート生成中にエラーが発生しました: ${error.message}`); 
+        }
+        setLoadingReport(false);
+    };
+
+    // UIのレンダリング
+    if (loading) {
+        return (
+            <div className="flex flex-col items-center justify-center h-full text-white">
+                <h2 className="text-2xl font-bold mb-4">接続中...</h2>
+            </div>
+        );
+    }
+
+    if (!user) {
+        return (
+            <div className="flex flex-col items-center justify-center h-full">
+                <div className="text-center p-8 bg-gray-800 rounded-lg shadow-2xl">
+                    <h1 className="text-4xl font-extrabold text-white" style={{fontFamily: "'Inter', sans-serif"}}>資格取得管理ダッシュボード</h1>
+                    <p className="text-gray-400 mb-8 mt-2">ログイン方法を選択してください</p>
+                    {error && <p className="text-red-400 mb-4 bg-red-900/50 p-3 rounded-md">{error}</p>}
+                    <div className="space-y-4">
+                        <button onClick={handleGoogleLogin} disabled={!!error} className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-200 text-gray-800 font-bold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                            <svg className="w-6 h-6" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path><path fill="none" d="M0 0h48v48H0z"></path></svg>
+                            Googleでログイン
+                        </button>
+                        <button onClick={handleAnonymousLogin} disabled={!!error} className="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                            匿名で続ける
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // ログイン後のメインUI
+    return (
+        <div className="min-h-screen p-4 relative">
+            {isModalOpen && <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+                <div className="bg-gray-800 p-6 rounded-lg shadow-xl max-w-sm w-full mx-4">
+                    <p className="text-white mb-6" style={{whiteSpace: 'pre-wrap'}}>{modalMessage}</p>
+                    <div className="flex justify-end space-x-4">
+                        {modalAction && <button onClick={() => { modalAction(); closeModal(); }} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg">はい</button>}
+                        <button onClick={closeModal} className="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg">{modalAction ? 'キャンセル' : '閉じる'}</button>
+                    </div>
+                </div>
+            </div>}
+            <header className="text-center mb-8">
+                <div className="flex justify-center items-center relative">
+                    <h1 className="text-4xl font-extrabold text-white" style={{fontFamily: "'Inter', sans-serif"}}>資格取得管理ダッシュボード</h1>
+                    <button onClick={handleLogout} className="absolute right-0 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg">ログアウト</button>
+                </div>
+                <div className="mt-2 text-xs text-gray-500 font-mono">ユーザー: {user.isAnonymous ? `ゲスト (${user.uid.substring(0,6)}...)` : user.displayName || 'Googleユーザー'}</div>
+            </header>
+            <nav className="mb-8 border-b border-gray-700">
+                <div className="flex justify-center space-x-4">
+                    {[{id: 'tab-1', label: '優先順位付け'}, {id: 'tab-2', label: '進捗管理'}, {id: 'tab-3', label: 'レポート'}].map(tab => (
+                        <button key={tab.id} onClick={() => setCurrentTab(tab.id)} className={`py-2 px-4 font-bold rounded-t-lg ${currentTab === tab.id ? 'bg-gray-800 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}>
+                            {tab.label}
+                        </button>
+                    ))}
+                </div>
+            </nav>
+            <main>
+                {currentTab === 'tab-1' && <div className="flex flex-col lg:flex-row p-4 gap-4">
+                    <div className="w-full lg:w-1/3 space-y-4">
+                        <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                            <h3 className="text-xl font-bold mb-2">1. 資格情報アップロード</h3>
+                            <p className="text-sm text-gray-400 mb-2">Excel(.xlsx)またはJSON(.json)形式。<br/>Excel: A列=資格名, B=難易度, C=必要性, D=やりがい (2行目から)</p>
+                            <input type="file" accept=".json,.xlsx,.xls" onChange={handleCertFileUpload} className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100 cursor-pointer"/>
+                        </div>
+                        <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                            <h3 className="text-xl font-bold mb-4">2. フィルター</h3>
+                            {['difficulty', 'necessity', 'gai'].map(key => {
+                                const labels = {difficulty: '難易度', necessity: '必要性', gai: 'やりがい'};
+                                return (
+                                <div key={key} className="mb-2">
+                                    <label className="block text-sm font-medium mb-1">{labels[key]} ({filters[key].min} - {filters[key].max})</label>
+                                    <div className="flex items-center space-x-2">
+                                        <span>1</span>
+                                        <input type="range" min="1" max="5" value={filters[key].min} onChange={e => handleFilterChange(key, 'min', e.target.value)} className="w-full" />
+                                        <input type="range" min="1" max="5" value={filters[key].max} onChange={e => handleFilterChange(key, 'max', e.target.value)} className="w-full" />
+                                        <span>5</span>
+                                    </div>
+                                </div>
+                                )})}
+                        </div>
+                        <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                            <h3 className="text-xl font-bold mb-4">{editingCert ? '資格情報の編集' : '3. 資格情報の手動追加'}</h3>
+                            <div className="space-y-4">
+                                <input type="text" name="name" value={certForm.name} onChange={handleFormChange} placeholder="資格名" className="w-full p-2 bg-gray-700 rounded-md"/>
+                                {['difficulty', 'necessity', 'gai'].map(key => (
+                                <div key={key}>
+                                    <label className="block text-sm font-medium mb-1">{({difficulty: '難易度', necessity: '必要性', gai: 'やりがい'})[key]} (1-5)</label>
+                                    <input type="number" name={key} value={certForm[key]} onChange={handleFormChange} min="1" max="5" className="w-full p-2 bg-gray-700 rounded-md"/>
+                                </div>
+                                ))}
+                                <button onClick={handleAddUpdateCert} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">{editingCert ? '更新' : '追加'}</button>
+                                {editingCert && <button onClick={() => setEditingCert(null)} className="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg mt-2">キャンセル</button>}
+                            </div>
+                        </div>
+                    </div>
+                    <div className="w-full lg:w-2/3 space-y-4">
+                        <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                            <div className="w-full h-[60vh] min-h-[400px]">
+                                <BubbleChart data={filteredCerts} />
+                            </div>
+                        </div>
+                        <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                            <h3 className="text-xl font-bold mb-4">資格一覧</h3>
+                            <div className="overflow-auto max-h-[40vh]">
+                                <table className="min-w-full divide-y divide-gray-700">
+                                    <thead className="bg-gray-700 sticky top-0"><tr>{['資格名', '難易度', '必要性', 'やりがい', 'アクション'].map(h => <th key={h} className="px-4 py-2 text-left text-xs font-medium text-gray-300 uppercase">{h}</th>)}</tr></thead>
+                                    <tbody className="bg-gray-800 divide-y divide-gray-700">
+                                        {filteredCerts.length > 0 ? filteredCerts.map(cert => (
+                                            <tr key={cert.id} className="hover:bg-gray-700/50">
+                                                <td className="px-4 py-2 text-sm font-medium text-white">{cert.name}</td>
+                                                <td className="px-4 py-2 text-sm text-gray-300">{cert.difficulty}</td>
+                                                <td className="px-4 py-2 text-sm text-gray-300">{cert.necessity}</td>
+                                                <td className="px-4 py-2 text-sm text-gray-300">{cert.gai}</td>
+                                                <td className="px-4 py-2 text-sm font-medium space-x-2">
+                                                    <button onClick={() => setEditingCert(cert)} className="text-indigo-400 hover:text-indigo-600">編集</button>
+                                                    <button onClick={() => handleDeleteCert(cert.id)} className="text-red-400 hover:text-red-600">削除</button>
+                                                </td>
+                                            </tr>
+                                        )) : (<tr><td colSpan="5" className="text-center py-4 text-gray-500">該当する資格がありません。</td></tr>)}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>}
+                {currentTab === 'tab-2' && <div className="flex flex-col lg:flex-row p-4 gap-4">
+                    <div className="w-full lg:w-1/3 space-y-4">
+                        <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                            <h3 className="text-xl font-bold mb-4">学習中の資格設定</h3>
+                            <select value={currentCertId || ''} onChange={(e) => setCurrentCertId(e.target.value)} className="w-full p-2 bg-gray-700 rounded-md mb-4">
+                                <option value="">資格を選択...</option>
+                                {data.certifications.map((cert) => <option key={cert.id} value={cert.id}>{cert.name}</option>)}
+                            </select>
+                            <label className="block text-sm font-medium mb-1">目標取得日</label>
+                            <input type="date" value={data.progress[currentCertId]?.targetDate || ''} onChange={async (e) => {
+                                if (!currentCertId) return;
+                                const updatedProgress = { ...data.progress, [currentCertId]: { ...(data.progress[currentCertId] || {}), targetDate: e.target.value } };
+                                await saveDataToFirestore({ ...data, progress: updatedProgress });
+                            }} className="w-full p-2 bg-gray-700 rounded-md"/>
+                        </div>
+                        <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                            <h3 className="text-xl font-bold mb-4">学習項目アップロード/追加</h3>
+                            <p className="text-sm text-gray-400 mb-2">Excelファイルをアップロード (●:大項目, ・:小項目)</p>
+                            <input type="file" accept=".xlsx" onChange={handleProgressFileUpload} className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100 cursor-pointer"/>
+                            <div className="mt-4 border-t border-gray-700 pt-4 space-y-2">
+                                <h4 className="text-lg font-bold mb-2">手動で追加</h4>
+                                <input type="text" value={newMajorItemName} onChange={(e) => setNewMajorItemName(e.target.value)} placeholder="大項目名" className="w-full p-2 bg-gray-700 rounded-md"/>
+                                <button onClick={handleAddMajorItem} disabled={!currentCertId} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">大項目を追加</button>
+                                <select value={parentMajorItemId} onChange={(e) => setParentMajorItemId(e.target.value)} className="w-full p-2 bg-gray-700 rounded-md mt-4">
+                                    <option value="">親となる大項目を選択...</option>
+                                    {Object.entries(data.progress[currentCertId]?.items || {}).map(([key, item]) => <option key={key} value={key}>{item.name}</option>)}
+                                </select>
+                                <input type="text" value={newMinorItemName} onChange={(e) => setNewMinorItemName(e.target.value)} placeholder="小項目名" className="w-full p-2 bg-gray-700 rounded-md"/>
+                                <button onClick={handleAddMinorItem} disabled={!parentMajorItemId} className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">小項目を追加</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="w-full lg:w-2/3 space-y-4">
+                        <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                            <h3 className="text-xl font-bold mb-4">{data.certifications.find(c => c.id === currentCertId)?.name || '資格を選択してください'}</h3>
+                            <div className="w-full bg-gray-700 rounded-full h-4 mb-4">
+                                <div className="bg-green-500 h-4 rounded-full text-xs flex items-center justify-center text-white font-bold" style={{ width: `${data.progress[currentCertId] ? (Object.values(data.progress[currentCertId].items || {}).reduce((acc, major) => acc + Object.values(major.subItems || {}).filter(sub => sub.checked).length, 0) / (Object.values(data.progress[currentCertId].items || {}).reduce((acc, major) => acc + Object.keys(major.subItems || {}).length, 0) || 1) * 100).toFixed(1) : 0}%` }}>
+                                    {data.progress[currentCertId] ? (Object.values(data.progress[currentCertId].items || {}).reduce((acc, major) => acc + Object.values(major.subItems || {}).filter(sub => sub.checked).length, 0) / (Object.values(data.progress[currentCertId].items || {}).reduce((acc, major) => acc + Object.keys(major.subItems || {}).length, 0) || 1) * 100).toFixed(1) : 0}%
+                                </div>
+                            </div>
+                            <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2">
+                                {Object.entries(data.progress[currentCertId]?.items || {}).map(([majorKey, majorItem]) => (
+                                    <div key={majorKey} className="p-2 rounded bg-gray-700/50">
+                                        <h5 className="font-bold mb-1">{majorItem.name}</h5>
+                                        <div className="pl-4 space-y-1">
+                                            {Object.entries(majorItem.subItems || {}).map(([minorKey, minorItem]) => (
+                                                <label key={minorKey} className="flex items-center space-x-2 cursor-pointer">
+                                                    <input type="checkbox" checked={minorItem.checked} onChange={() => handleProgressCheckbox(minorKey, majorKey)} className="form-checkbox h-4 w-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500" />
+                                                    <span className={`text-gray-300 ${minorItem.checked ? 'line-through text-gray-500' : ''}`}>{minorItem.name}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>}
+                {currentTab === 'tab-3' && <div className="flex flex-col p-4 space-y-4">
+                    <div className="bg-gray-800 p-4 rounded-lg shadow-lg w-full max-w-4xl mx-auto">
+                        <h3 className="text-xl font-bold mb-4">AI進捗レポート</h3>
+                        <p className="text-sm text-gray-400 mb-4">進捗管理タブで資格を選択後、AIがあなたにアドバイスを送ります。</p>
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium mb-1">レポート者（著名人やキャラクター名）</label>
+                            <input type="text" value={reporter} onChange={(e) => setReporter(e.target.value)} placeholder="例：スティーブ・ジョブズ" className="w-full p-2 bg-gray-700 rounded-md"/>
+                        </div>
+                        <button onClick={generateReport} className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-500 disabled:cursor-not-allowed" disabled={loadingReport || !currentCertId}>
+                            {loadingReport ? '生成中...' : 'レポートを生成'}
+                        </button>
+                        {report && <div className="mt-4 p-4 bg-gray-700 rounded-lg whitespace-pre-wrap leading-relaxed" dangerouslySetInnerHTML={{ __html: report.replace(/\n/g, '<br />') }}></div>}
+                    </div>
+                </div>}
+            </main>
+        </div>
+    );
+};
+
 
 
 
