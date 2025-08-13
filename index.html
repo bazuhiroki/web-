@@ -36,7 +36,6 @@
     <!-- Firebaseの読み込み -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        // ▼▼▼ 変更点: 認証関連のモジュールをすべて削除 ▼▼▼
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         window.firebase = {
@@ -51,7 +50,6 @@
     <!-- Reactコード -->
     <script type="text/babel">
         const { useState, useEffect, useCallback, useMemo, useRef } = React;
-        // ▼▼▼ 変更点: 認証関連のモジュールをすべて削除 ▼▼▼
         const { initializeApp, getFirestore, doc, setDoc, onSnapshot } = window.firebase;
         const { uuidv4, XLSX, Plotly } = window;
 
@@ -97,7 +95,6 @@
                 } catch (e) { console.error("Plotlyチャートの描画中にエラーが発生しました:", e); }
             }, [data]);
 
-            // このコンポーネントが表示される時点でライブラリはロード済みなので、ローディング表示は簡略化
             return (
                 <div ref={plotRef} className="w-full h-full">
                     {(!data || data.length === 0) && <div className="flex items-center justify-center h-full text-gray-500 bg-gray-800/50 rounded-lg p-4 text-center">表示するデータがありません。<br/>左のフォームから資格情報を追加またはアップロードしてください。</div>}
@@ -489,38 +486,62 @@
             );
         };
         
-        // ▼▼▼ 変更点: アプリ全体の起動をライブラリロード後にする ▼▼▼
+        // ▼▼▼ 変更点: アプリ全体の起動を管理するローダーコンポーネント ▼▼▼
         const AppLoader = () => {
-            const [librariesLoaded, setLibrariesLoaded] = useState(false);
+            const [status, setStatus] = useState('準備中...');
+            const [progress, setProgress] = useState(0);
             const [error, setError] = useState(null);
 
             useEffect(() => {
-                const timeout = setTimeout(() => {
-                    if (!window.Plotly || !window.XLSX || !window.uuidv4) {
-                        setError('必須ライブラリの読み込みに失敗しました。時間をおいてページを再読み込みしてください。');
-                    }
-                }, 10000); // 10秒でタイムアウト
+                const libraries = [
+                    { name: 'React', check: () => window.React && window.ReactDOM },
+                    { name: 'Babel', check: () => window.Babel },
+                    { name: 'UUID', check: () => window.uuidv4 },
+                    { name: 'XLSX', check: () => window.XLSX },
+                    { name: 'Plotly', check: () => window.Plotly },
+                    { name: 'Firebase', check: () => window.firebase }
+                ];
+                const total = libraries.length;
+                let loadedCount = 0;
 
                 const interval = setInterval(() => {
-                    if (window.Plotly && window.XLSX && window.uuidv4) {
-                        setLibrariesLoaded(true);
+                    const nextLibIndex = loadedCount;
+                    if (nextLibIndex >= total) {
+                        setStatus('完了');
+                        setProgress(100);
                         clearInterval(interval);
-                        clearTimeout(timeout);
+                        return;
                     }
-                }, 100);
 
+                    const library = libraries[nextLibIndex];
+                    setStatus(`${library.name}を準備中...`);
+                    
+                    if (library.check()) {
+                        loadedCount++;
+                        setProgress((loadedCount / total) * 100);
+                    }
+                }, 300); // 300msごとにチェック
+
+                // ▼▼▼ 変更点: タイムアウト処理を削除 ▼▼▼
                 return () => {
                     clearInterval(interval);
-                    clearTimeout(timeout);
                 };
             }, []);
 
             if (error) {
-                return <div className="flex items-center justify-center h-full text-red-400">{error}</div>;
+                return <div className="flex items-center justify-center h-full text-red-400 p-4 text-center">{error}</div>;
             }
 
-            if (!librariesLoaded) {
-                return <div className="flex items-center justify-center h-full text-white">アプリケーションを準備中...</div>;
+            if (progress < 100) {
+                return (
+                    <div className="flex flex-col items-center justify-center h-full text-white">
+                        <h2 className="text-2xl font-bold mb-4">アプリケーションを準備中...</h2>
+                        <div className="w-1/2 max-w-md bg-gray-700 rounded-full h-2.5">
+                            <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${progress}%`, transition: 'width 0.3s ease-in-out' }}></div>
+                        </div>
+                        <p className="mt-4 text-gray-400">{status}</p>
+                    </div>
+                );
             }
 
             return <App />;
@@ -531,6 +552,7 @@
     </script>
 </body>
 </html>
+
 
 
 
