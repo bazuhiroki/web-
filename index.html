@@ -91,7 +91,6 @@
             const [userId, setUserId] = useState(null);
             const [showUserId, setShowUserId] = useState(false);
             
-            // --- ▼▼▼ フィルター用のStateを追加 ▼▼▼ ---
             const [filters, setFilters] = useState({
                 difficulty: { min: 1, max: 5 },
                 necessity: { min: 1, max: 5 },
@@ -245,7 +244,6 @@
                 });
             };
             
-            // --- ▼▼▼ フィルターされたデータをメモ化 ▼▼▼ ---
             const filteredCerts = useMemo(() => {
                 return data.certifications.filter(cert => 
                     cert.difficulty >= filters.difficulty.min && cert.difficulty <= filters.difficulty.max &&
@@ -260,7 +258,6 @@
                 const center = 3, axis_range = [0, 6];
 
                 const plotData = [
-                    // 資格データの散布図
                     {
                         x: df.map((c) => c.difficulty),
                         y: df.map((c) => c.necessity),
@@ -276,7 +273,6 @@
                         text: df.map((c) => c.name),
                         hoverinfo: 'text',
                     },
-                    // 資格名のテキスト
                     {
                         x: df.map((c) => c.difficulty),
                         y: df.map((c) => c.necessity),
@@ -289,7 +285,6 @@
                         hoverinfo: 'none',
                         showlegend: false
                     },
-                    // 中心線
                     {
                         x: [axis_range[0], axis_range[1], null, center, center, null, center, center],
                         y: [center, center, null, axis_range[0], axis_range[1], null, center, center],
@@ -320,7 +315,8 @@
                     showlegend: false
                 };
             
-                Plotly.newPlot('scatter-plot', plotData, layout, { responsive: true });
+                // --- ▼▼▼ 変更点: newPlotからreactに変更 ▼▼▼ ---
+                Plotly.react('scatter-plot', plotData, layout, { responsive: true });
             }, [plotlyLoaded]);
             
             useEffect(() => {
@@ -579,7 +575,6 @@
                                 className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100 cursor-pointer"
                             />
                         </div>
-                        {/* --- ▼▼▼ フィルターUIを追加 ▼▼▼ --- */}
                         <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
                             <h3 className="text-xl font-bold mb-4">フィルター</h3>
                             <div className="space-y-4">
@@ -899,6 +894,7 @@
     </script>
 </body>
 </html>
+
 
 
 
