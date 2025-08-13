@@ -14,12 +14,10 @@
         }
         /* カスタムスクロールバー */
         ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #1f2937; } /* bg-gray-800 */
-        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; } /* bg-gray-600 */
-        ::-webkit-scrollbar-thumb:hover { background: #6b7280; } /* bg-gray-500 */
-        /* Plotlyのツールバーの色を調整 */
-        .modebar-btn path { fill: #9ca3af !important; }
-        .modebar-btn:hover path { fill: #f9fafb !important; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+        canvas { display: block; }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100">
@@ -30,74 +28,111 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuidv4.min.js"></script>
-    <script src="https://cdn.plot.ly/latest/plotly.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
     <!-- Firebaseの読み込み -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        // ▼▼▼ 変更点: 匿名認証に必要なモジュールを追加 ▼▼▼
+        import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
         window.firebase = {
             initializeApp,
             getFirestore,
             doc,
             setDoc,
-            onSnapshot
+            onSnapshot,
+            getAuth, // 追加
+            onAuthStateChanged, // 追加
+            signInAnonymously // 追加
         };
     </script>
     
     <!-- Reactコード -->
     <script type="text/babel">
         const { useState, useEffect, useCallback, useMemo, useRef } = React;
-        const { initializeApp, getFirestore, doc, setDoc, onSnapshot } = window.firebase;
-        const { uuidv4, XLSX, Plotly } = window;
+        const { initializeApp, getFirestore, doc, setDoc, onSnapshot, getAuth, onAuthStateChanged, signInAnonymously } = window.firebase;
+        const { uuidv4, XLSX, Chart } = window;
 
-        // --- 3Dプロットコンポーネント ---
-        const ScatterPlot = ({ data }) => {
-            const plotRef = useRef(null);
+        // --- Chart.js 2Dバブルチャートコンポーネント ---
+        const BubbleChart = ({ data }) => {
+            const canvasRef = useRef(null);
+            const chartRef = useRef(null);
 
             useEffect(() => {
-                const plotDiv = plotRef.current;
-                if (!plotDiv || typeof Plotly === 'undefined') return;
+                const currentCanvas = canvasRef.current;
+                if (!currentCanvas || typeof Chart === 'undefined') return;
 
-                Plotly.purge(plotDiv);
-                if (!data || data.length === 0) return;
+                if (chartRef.current) {
+                    chartRef.current.destroy();
+                }
 
-                try {
-                    const df = data.filter(cert => cert.name && !isNaN(cert.difficulty) && !isNaN(cert.necessity) && !isNaN(cert.gai));
-                    const axisRange = [0, 6];
-                    const plotData = [{
-                        x: df.map(c => c.difficulty), y: df.map(c => c.necessity), z: df.map(c => c.gai),
-                        mode: 'markers+text', type: 'scatter3d',
-                        marker: {
-                            size: df.map(c => c.gai + 4), color: df.map(c => c.gai),
-                            colorscale: 'Viridis', colorbar: { title: 'やりがい', tickfont: { color: '#f3f4f6' }, titlefont: { color: '#f3f4f6' } },
-                            opacity: 0.8
+                const ctx = currentCanvas.getContext('2d');
+                
+                const chartData = {
+                    datasets: [{
+                        label: '資格',
+                        data: data.map(cert => ({
+                            x: cert.difficulty,
+                            y: cert.necessity,
+                            r: cert.gai * 4,
+                            name: cert.name
+                        })),
+                        backgroundColor: data.map(cert => `hsla(${180 + cert.gai * 20}, 80%, 60%, 0.7)`),
+                        borderColor: data.map(cert => `hsla(${180 + cert.gai * 20}, 80%, 40%, 1)`),
+                        borderWidth: 1,
+                    }]
+                };
+
+                const options = {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: '#1f2937',
+                            titleColor: '#e5e7eb',
+                            bodyColor: '#d1d5db',
+                            callbacks: {
+                                label: function(context) {
+                                    const d = context.raw;
+                                    return `${d.name} | 難易度: ${d.x}, 必要性: ${d.y}, やりがい: ${d.r / 4}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: { display: true, text: '難易度', color: '#9ca3af' },
+                            grid: { color: '#374151' },
+                            ticks: { color: '#9ca3af', stepSize: 1 },
+                            min: 0,
+                            max: 6
                         },
-                        text: df.map(c => c.name), textfont: { color: 'white', size: 10 },
-                        textposition: 'top center', hoverinfo: 'text',
-                        hoverlabel: { bgcolor: '#1f2937', font: { color: 'white' } }
-                    }];
-                    const layout = {
-                        title: { text: '資格取得の優先順位', font: { color: '#f3f4f6' } },
-                        paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-                        font: { color: '#f3f4f6' }, margin: { l: 0, r: 0, b: 0, t: 40 },
-                        scene: {
-                            xaxis: { title: '難易度', range: axisRange, gridcolor: '#374151', zerolinecolor: '#4b5563', titlefont: { color: '#9ca3af' }, tickfont: { color: '#9ca3af' } },
-                            yaxis: { title: '必要性', range: axisRange, gridcolor: '#374151', zerolinecolor: '#4b5563', titlefont: { color: '#9ca3af' }, tickfont: { color: '#9ca3af' } },
-                            zaxis: { title: 'やりがい', range: axisRange, gridcolor: '#374151', zerolinecolor: '#4b5563', titlefont: { color: '#9ca3af' }, tickfont: { color: '#9ca3af' } },
-                            aspectratio: { x: 1, y: 1, z: 1 }, camera: { eye: { x: 1.5, y: 1.5, z: 1.5 } }
-                        },
-                        showlegend: false
-                    };
-                    Plotly.react(plotDiv, plotData, layout, { responsive: true, displaylogo: false });
-                } catch (e) { console.error("Plotlyチャートの描画中にエラーが発生しました:", e); }
+                        y: {
+                            title: { display: true, text: '必要性', color: '#9ca3af' },
+                            grid: { color: '#374151' },
+                            ticks: { color: '#9ca3af', stepSize: 1 },
+                            min: 0,
+                            max: 6
+                        }
+                    }
+                };
+
+                chartRef.current = new Chart(ctx, {
+                    type: 'bubble',
+                    data: chartData,
+                    options: options
+                });
+
             }, [data]);
 
             return (
-                <div ref={plotRef} className="w-full h-full">
-                    {(!data || data.length === 0) && <div className="flex items-center justify-center h-full text-gray-500 bg-gray-800/50 rounded-lg p-4 text-center">表示するデータがありません。<br/>左のフォームから資格情報を追加またはアップロードしてください。</div>}
+                <div className="relative w-full h-full">
+                    <canvas ref={canvasRef}></canvas>
+                    {(!data || data.length === 0) && <div className="absolute inset-0 flex items-center justify-center text-gray-500 bg-gray-800/50 rounded-lg p-4 text-center">表示するデータがありません。<br/>左のフォームから資格情報を追加またはアップロードしてください。</div>}
                 </div>
             );
         };
@@ -105,7 +140,8 @@
         // --- メインアプリケーションコンポーネント ---
         const App = () => {
             const [db, setDb] = useState(null);
-            const [persistentUserId, setPersistentUserId] = useState(null);
+            // ▼▼▼ 変更点: 永続IDをFirebaseの匿名ユーザーIDに変更 ▼▼▼
+            const [userId, setUserId] = useState(null);
             const [data, setData] = useState({ certifications: [], progress: {} });
             const [currentTab, setCurrentTab] = useState('tab-1');
             const [editingCert, setEditingCert] = useState(null);
@@ -122,26 +158,35 @@
             const [modalMessage, setModalMessage] = useState('');
             const [modalAction, setModalAction] = useState(null);
             
+            // ▼▼▼ 変更点: 匿名認証を導入し、ユーザーIDをFirebaseから取得 ▼▼▼
             useEffect(() => {
-                let pid = localStorage.getItem('shikaku_dashboard_pid_v2');
-                if (!pid) {
-                    pid = uuidv4();
-                    localStorage.setItem('shikaku_dashboard_pid_v2', pid);
-                }
-                setPersistentUserId(pid);
-
                 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
                 if (Object.keys(firebaseConfig).length === 0) { return; }
                 const app = initializeApp(firebaseConfig);
+                const auth = getAuth(app);
                 const firestoreInstance = getFirestore(app);
                 setDb(firestoreInstance);
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        // ユーザーが既に（匿名）ログインしていれば、そのIDを使用
+                        setUserId(user.uid);
+                    } else {
+                        // ログインしていなければ、匿名でログイン
+                        signInAnonymously(auth).catch(err => {
+                            console.error("Anonymous sign-in failed", err);
+                            openModal(`データベースへの接続に失敗しました: ${err.message}`);
+                        });
+                    }
+                });
             }, []);
 
+            // ▼▼▼ 変更点: データベースのパスをユーザー専用領域に変更 ▼▼▼
             useEffect(() => {
-                if (!db || !persistentUserId) return;
+                if (!db || !userId) return;
                 
                 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                const userDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'qualification-dashboards', persistentUserId);
+                const userDocRef = doc(db, 'artifacts', appId, 'users', userId);
 
                 const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
                     if (docSnap.exists()) {
@@ -153,20 +198,21 @@
                     } else { setData({ certifications: [], progress: {} }); }
                 }, (error) => {
                     console.error("Firestore snapshot error:", error);
-                    openModal(`データの読み込みに失敗しました: ${error.message}`);
+                    openModal(`データの読み込みに失敗しました。セキュリティルールの問題かもしれません: ${error.message}`);
                 });
                 return () => unsubscribe();
-            }, [db, persistentUserId]);
+            }, [db, userId]);
             
+            // ▼▼▼ 変更点: データベースのパスをユーザー専用領域に変更 ▼▼▼
             const saveDataToFirestore = useCallback(async (newData) => {
-                if (!db || !persistentUserId) return;
+                if (!db || !userId) return;
                 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                const userDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'qualification-dashboards', persistentUserId);
+                const userDocRef = doc(db, 'artifacts', appId, 'users', userId);
                 await setDoc(userDocRef, {
                     certifications: JSON.stringify(newData.certifications),
                     progress: JSON.stringify(newData.progress),
                 }, { merge: true }).catch(err => openModal(`データ保存エラー: ${err.message}`));
-            }, [db, persistentUserId]);
+            }, [db, userId]);
 
             useEffect(() => {
                 if (editingCert) { setCertForm(editingCert); } 
@@ -333,7 +379,7 @@
                         <div className="flex justify-center items-center relative">
                             <h1 className="text-4xl font-extrabold text-white" style={{fontFamily: "'Inter', sans-serif"}}>資格取得管理ダッシュボード</h1>
                         </div>
-                        <div className="mt-2 text-xs text-gray-500 font-mono">永続ID: {persistentUserId}</div>
+                        <div className="mt-2 text-xs text-gray-500 font-mono">ユーザーID: {userId || '接続中...'}</div>
                     </header>
                     <nav className="mb-8 border-b border-gray-700">
                         <div className="flex justify-center space-x-4">
@@ -384,7 +430,11 @@
                                 </div>
                             </div>
                             <div className="w-full lg:w-2/3 space-y-4">
-                                <div className="bg-gray-800 p-4 rounded-lg shadow-lg"><div className="w-full h-[60vh] min-h-[400px]"><ScatterPlot data={filteredCerts} /></div></div>
+                                <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                                    <div className="w-full h-[60vh] min-h-[400px]">
+                                        <BubbleChart data={filteredCerts} />
+                                    </div>
+                                </div>
                                 <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
                                     <h3 className="text-xl font-bold mb-4">資格一覧</h3>
                                     <div className="overflow-auto max-h-[40vh]">
@@ -486,11 +536,9 @@
             );
         };
         
-        // ▼▼▼ 変更点: アプリ全体の起動を管理するローダーコンポーネント ▼▼▼
         const AppLoader = () => {
             const [status, setStatus] = useState('準備中...');
             const [progress, setProgress] = useState(0);
-            const [error, setError] = useState(null);
 
             useEffect(() => {
                 const libraries = [
@@ -498,7 +546,7 @@
                     { name: 'Babel', check: () => window.Babel },
                     { name: 'UUID', check: () => window.uuidv4 },
                     { name: 'XLSX', check: () => window.XLSX },
-                    { name: 'Plotly', check: () => window.Plotly },
+                    { name: 'Chart.js', check: () => window.Chart },
                     { name: 'Firebase', check: () => window.firebase }
                 ];
                 const total = libraries.length;
@@ -520,24 +568,19 @@
                         loadedCount++;
                         setProgress((loadedCount / total) * 100);
                     }
-                }, 300); // 300msごとにチェック
+                }, 200);
 
-                // ▼▼▼ 変更点: タイムアウト処理を削除 ▼▼▼
                 return () => {
                     clearInterval(interval);
                 };
             }, []);
-
-            if (error) {
-                return <div className="flex items-center justify-center h-full text-red-400 p-4 text-center">{error}</div>;
-            }
 
             if (progress < 100) {
                 return (
                     <div className="flex flex-col items-center justify-center h-full text-white">
                         <h2 className="text-2xl font-bold mb-4">アプリケーションを準備中...</h2>
                         <div className="w-1/2 max-w-md bg-gray-700 rounded-full h-2.5">
-                            <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${progress}%`, transition: 'width 0.3s ease-in-out' }}></div>
+                            <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${progress}%`, transition: 'width 0.2s ease-in-out' }}></div>
                         </div>
                         <p className="mt-4 text-gray-400">{status}</p>
                     </div>
@@ -552,6 +595,7 @@
     </script>
 </body>
 </html>
+
 
 
 
