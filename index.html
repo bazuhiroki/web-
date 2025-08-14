@@ -16,6 +16,15 @@
         ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
         canvas { display: block; }
         .day-selected { background-color: #4f46e5 !important; color: white !important; }
+
+        /* モーダルのアニメーション */
+        @keyframes fade-in-scale {
+            from { transform: scale(0.95); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+        .animate-fade-in-scale {
+            animation: fade-in-scale 0.3s ease-out forwards;
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100">
@@ -29,25 +38,14 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
-    <!-- Firebase設定 -->
-    <script>
-        const __firebase_config = JSON.stringify({
-            apiKey: "AIzaSyDUfeARP0PATgGlG17Grqit29-U0ya5vhQ", // ★★★ ご自身のFirebase APIキーに設定してください ★★★
-            authDomain: "shikaku-dashboard.firebaseapp.com",
-            projectId: "shikaku-dashboard",
-            storageBucket: "shikaku-dashboard.appspot.com",
-            messagingSenderId: "727535626459",
-            appId: "1:727535626459:web:aaf8fd5a49df92cc9004fe",
-            measurementId: "G-C3V0X55D9X"
-        });
-    </script>
-    
+
     <!-- Reactコード -->
     <script type="text/babel" data-type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { getAuth, onAuthStateChanged, signInAnonymously, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, onAuthStateChanged, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         
         const { useState, useEffect, useCallback, useMemo, useRef } = React;
         const { uuidv4, XLSX, Chart } = window;
@@ -130,6 +128,78 @@
             );
         };
 
+        // --- 新しいAIレポートモーダル ---
+        const AIReportModal = ({
+            isOpen, onClose, reporter, setReporter, generateReport, generateComprehensiveReport,
+            loadingReport, report, handlePdfExport, handleSaveReportToCalendar, selectedDate,
+            currentCertId
+        }) => {
+            if (!isOpen) return null;
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+                    <div className="bg-gray-800 p-6 rounded-lg shadow-xl max-w-3xl w-full mx-4 animate-fade-in-scale">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-2xl font-bold text-white">AIレポート</h3>
+                            <button onClick={onClose} className="text-gray-400 hover:text-white text-3xl leading-none">&times;</button>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {/* 左側: 設定とアクション */}
+                            <div className="space-y-4 flex flex-col">
+                                <div>
+                                    <h4 className="text-lg font-bold mb-2">AIレポーター設定</h4>
+                                    <input
+                                        type="text"
+                                        value={reporter}
+                                        onChange={(e) => setReporter(e.target.value)}
+                                        placeholder="例：熱血コーチ"
+                                        className="w-full p-2 bg-gray-700 rounded-md"
+                                    />
+                                </div>
+                                <div className="space-y-2 mt-auto">
+                                    <button
+                                        onClick={generateReport}
+                                        className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-500 disabled:cursor-not-allowed"
+                                        disabled={loadingReport || !currentCertId}
+                                    >
+                                        {loadingReport ? '生成中...' : '個別レポートを生成'}
+                                    </button>
+                                    <button
+                                        onClick={generateComprehensiveReport}
+                                        className="w-full bg-sky-600 hover:bg-sky-700 text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-500 disabled:cursor-not-allowed"
+                                        disabled={loadingReport}
+                                    >
+                                        {loadingReport ? '生成中...' : '総合レポートを生成'}
+                                    </button>
+                                    {!currentCertId && <p className="text-xs text-yellow-400 text-center pt-1">個別レポートには「進捗管理」タブでの資格選択が必要です。</p>}
+                                </div>
+                            </div>
+
+                            {/* 右側: レポート表示 */}
+                            <div className="bg-gray-900 p-4 rounded-lg h-96 overflow-y-auto">
+                                {loadingReport ? (
+                                    <div className="flex items-center justify-center h-full text-gray-400">レポートを生成中...</div>
+                                ) : report ? (
+                                    <div id="report-content" className="prose prose-invert max-w-none whitespace-pre-wrap leading-relaxed" dangerouslySetInnerHTML={{ __html: report.replace(/\n/g, '<br />') }}></div>
+                                ) : (
+                                    <div className="flex items-center justify-center h-full text-gray-500">ここにレポートが表示されます。</div>
+                                )}
+                            </div>
+                        </div>
+
+                        {report && !loadingReport && (
+                            <div className="flex justify-end gap-4 mt-6 border-t border-gray-700 pt-4">
+                                <button onClick={handlePdfExport} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">PDF出力</button>
+                                <button onClick={handleSaveReportToCalendar} disabled={!selectedDate} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">選択中の日付に保存</button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+
         // --- 各タブのコンポーネント ---
         const PrioritizationTab = ({ data, filters, handleFilterChange, certForm, handleFormChange, handleAddUpdateCert, editingCert, setEditingCert, handleCertFileUpload, handleDeleteCert }) => {
             const filteredCerts = useMemo(() => {
@@ -143,6 +213,7 @@
             return (
                 <div className="flex flex-col lg:flex-row p-4 gap-4">
                     <div className="w-full lg:w-1/3 space-y-4">
+                        {/* ... (変更なし) ... */}
                         <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
                             <h3 className="text-xl font-bold mb-2">1. 資格情報アップロード</h3>
                             <p className="text-sm text-gray-400 mb-2">Excel(.xlsx)またはJSON(.json)形式。<br/>Excel: A列=資格名, B=難易度, C=必要性, D=やりがい (2行目から)</p>
@@ -212,10 +283,11 @@
             );
         };
 
-        const ProgressTab = ({ data, currentCertId, setCurrentCertId, saveDataToFirestore, handleProgressFileUpload, newMajorItemName, setNewMajorItemName, handleAddMajorItem, parentMajorItemId, setParentMajorItemId, newMinorItemName, setNewMinorItemName, handleAddMinorItem, handleProgressCheckbox, progressPercent }) => {
+        const ProgressTab = ({ data, currentCertId, setCurrentCertId, saveDataToFirestore, handleProgressFileUpload, newMajorItemName, setNewMajorItemName, handleAddMajorItem, parentMajorItemId, setParentMajorItemId, newMinorItemName, setNewMinorItemName, handleAddMinorItem, handleProgressCheckbox, progressPercent, openModal }) => {
             return (
                 <div className="flex flex-col lg:flex-row p-4 gap-4">
                     <div className="w-full lg:w-1/3 space-y-4">
+                        {/* ... (変更なし) ... */}
                         <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
                             <h3 className="text-xl font-bold mb-4">学習中の資格設定</h3>
                             <select value={currentCertId || ''} onChange={(e) => setCurrentCertId(e.target.value)} className="w-full p-2 bg-gray-700 rounded-md mb-4">
@@ -251,7 +323,7 @@
                             <h3 className="text-xl font-bold mb-4">{data.certifications.find(c => c.id === currentCertId)?.name || '資格を選択してください'}</h3>
                             <div className="w-full bg-gray-700 rounded-full h-4 mb-4">
                                 <div className="bg-green-500 h-4 rounded-full text-xs flex items-center justify-center text-white font-bold" style={{ width: `${progressPercent}%` }}>
-                                    {progressPercent.toFixed(1)}%
+                                    {progressPercent > 10 && `${progressPercent.toFixed(1)}%`}
                                 </div>
                             </div>
                             <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2">
@@ -275,11 +347,12 @@
             );
         };
 
-        const ReportTab = ({ data, currentCertId, progressPercent, daysRemaining, certName, totalStudyTime, reporter, setReporter, report, loadingReport, generateReport, generateComprehensiveReport, saveDataToFirestore, viewDate, setViewDate, selectedDate, setSelectedDate, note, setNote, studyTime, setStudyTime }) => {
+        const ReportTab = ({ data, currentCertId, progressPercent, daysRemaining, certName, totalStudyTime, viewDate, setViewDate, selectedDate, setSelectedDate, note, setNote, studyTime, setStudyTime, saveDataToFirestore, openModal, setIsAiReportModalOpen }) => {
+            
             const handleSaveCalendarEntry = async () => {
                 if (!selectedDate) return;
                 if (!currentCertId) {
-                    alert('記録を保存するには、「進捗管理」タブで学習中の資格を選択してください。');
+                    openModal('エラー', '記録を保存するには、「進捗管理」タブで学習中の資格を選択してください。');
                     return;
                 }
                 const dateKey = selectedDate.toISOString().split('T')[0];
@@ -289,27 +362,9 @@
                 updatedCalendar[dateKey].note = note;
                 updatedCalendar[dateKey].studyLog[currentCertId] = Number(studyTime) || 0;
                 await saveDataToFirestore({ ...data, calendar: updatedCalendar });
-                alert(`${dateKey} の記録を保存しました。`);
+                openModal('保存完了', `${dateKey} の記録を保存しました。`);
             };
             
-            const handleSaveReportToCalendar = async () => {
-                if (!selectedDate || !report) return;
-                const dateKey = selectedDate.toISOString().split('T')[0];
-                const updatedCalendar = JSON.parse(JSON.stringify(data.calendar || {}));
-                if (!updatedCalendar[dateKey]) updatedCalendar[dateKey] = {};
-                updatedCalendar[dateKey].report = report;
-                await saveDataToFirestore({ ...data, calendar: updatedCalendar });
-                alert(`${dateKey} にレポートを保存しました。`);
-            };
-
-            const handlePdfExport = () => {
-                if (!report) return;
-                const doc = new jsPDF();
-                const splitText = doc.splitTextToSize(report, 180);
-                doc.text(splitText, 10, 10);
-                doc.save(`${certName || 'comprehensive'}_report_${new Date().toISOString().split('T')[0]}.pdf`);
-            };
-
             const calendarDays = useMemo(() => {
                 const year = viewDate.getFullYear();
                 const month = viewDate.getMonth();
@@ -323,7 +378,7 @@
             
             return (
                 <div className="p-4 space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                         <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col items-center justify-center">
                             <div className="text-4xl md:text-6xl font-bold text-indigo-400">
                                 {daysRemaining !== null ? (daysRemaining >= 0 ? daysRemaining : '期限切れ') : '-'}
@@ -338,34 +393,22 @@
                         </div>
                         <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col items-center justify-center">
                              <div className="w-32 h-32 md:w-40 md:h-40">
-                                <ProgressDoughnutChart progressPercent={currentCertId ? progressPercent : 0} />
+                                 <ProgressDoughnutChart progressPercent={currentCertId ? progressPercent : 0} />
                              </div>
-                             <div className="text-md md:text-lg text-gray-400 mt-4">{certName || '資格未選択'}</div>
+                             <div className="text-md md:text-lg text-gray-400 mt-4 text-center">{certName || '資格未選択'}</div>
                         </div>
-                        <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col justify-center">
-                            <h3 className="text-xl font-bold mb-4">AIレポーター設定</h3>
-                            <div className="space-y-2">
-                                <input type="text" value={reporter} onChange={(e) => setReporter(e.target.value)} placeholder="例：熱血コーチ" className="w-full p-2 bg-gray-700 rounded-md"/>
-                                <button onClick={generateReport} className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-500 disabled:cursor-not-allowed" disabled={loadingReport || !currentCertId}>
-                                    {loadingReport ? '生成中...' : '個別レポートを生成'}
-                                </button>
-                                <button onClick={generateComprehensiveReport} className="w-full bg-sky-600 hover:bg-sky-700 text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-500 disabled:cursor-not-allowed" disabled={loadingReport}>
-                                    {loadingReport ? '生成中...' : '総合レポートを生成'}
-                                </button>
-                            </div>
+                        {/* AIレポート起動ボタン */}
+                        <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col justify-center text-center">
+                            <h3 className="text-xl font-bold mb-2">AIレポート</h3>
+                            <p className="text-sm text-gray-400 mb-4">学習状況を分析し、パーソナライズされたレポートとアドバイスを生成します。</p>
+                            <button
+                                onClick={() => setIsAiReportModalOpen(true)}
+                                className="w-full mt-auto bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105"
+                            >
+                                AIレポートを開く
+                            </button>
                         </div>
                     </div>
-
-                    {report && (
-                        <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
-                            <h3 className="text-2xl font-bold mb-4">AIからのレポート</h3>
-                            <div className="prose prose-invert max-w-none p-4 bg-gray-700/50 rounded-lg whitespace-pre-wrap leading-relaxed" dangerouslySetInnerHTML={{ __html: report.replace(/\n/g, '<br />') }}></div>
-                            <div className="flex justify-end gap-4 mt-4">
-                                <button onClick={handlePdfExport} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">PDF出力</button>
-                                <button onClick={handleSaveReportToCalendar} disabled={!selectedDate} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">選択中の日付に保存</button>
-                            </div>
-                        </div>
-                    )}
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
@@ -395,40 +438,40 @@
                         </div>
                         <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
                              <h3 className="text-xl font-bold mb-4">
-                                {selectedDate ? `${selectedDate.toLocaleDateString('ja-JP')} の記録` : '日付を選択してください'}
-                            </h3>
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="text-sm text-gray-400 mb-1 block">学習時間（分）</label>
-                                    <input
-                                        type="number"
-                                        value={studyTime}
-                                        onChange={(e) => setStudyTime(e.target.value)}
-                                        placeholder="例: 60"
-                                        disabled={!selectedDate || !currentCertId}
-                                        className="w-full p-2 bg-gray-700 rounded-md disabled:opacity-50"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-sm text-gray-400 mb-1 block">メモ</label>
-                                    <textarea
-                                        value={note}
-                                        onChange={(e) => setNote(e.target.value)}
-                                        placeholder="その日の学習内容や気づきを記録..."
-                                        disabled={!selectedDate}
-                                        className="w-full h-28 p-2 bg-gray-700 rounded-md disabled:opacity-50"
-                                    ></textarea>
-                                </div>
-                            </div>
-                            <button onClick={handleSaveCalendarEntry} disabled={!selectedDate || !currentCertId} className="w-full mt-4 bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">
-                                {currentCertId ? 'この日の記録を保存' : '先に資格を選択'}
-                            </button>
-                            {selectedDate && data.calendar?.[selectedDate.toISOString().split('T')[0]]?.report && (
-                                <div className="mt-4">
-                                    <h4 className="font-bold text-lg mb-2">保存されたレポート</h4>
-                                    <div className="p-3 bg-gray-700/50 rounded-lg text-sm whitespace-pre-wrap max-h-32 overflow-y-auto">{data.calendar[selectedDate.toISOString().split('T')[0]].report}</div>
-                                </div>
-                            )}
+                                 {selectedDate ? `${selectedDate.toLocaleDateString('ja-JP')} の記録` : '日付を選択してください'}
+                             </h3>
+                             <div className="space-y-4">
+                                 <div>
+                                     <label className="text-sm text-gray-400 mb-1 block">学習時間（分）</label>
+                                     <input
+                                         type="number"
+                                         value={studyTime}
+                                         onChange={(e) => setStudyTime(e.target.value)}
+                                         placeholder="例: 60"
+                                         disabled={!selectedDate || !currentCertId}
+                                         className="w-full p-2 bg-gray-700 rounded-md disabled:opacity-50"
+                                     />
+                                 </div>
+                                 <div>
+                                     <label className="text-sm text-gray-400 mb-1 block">メモ</label>
+                                     <textarea
+                                         value={note}
+                                         onChange={(e) => setNote(e.target.value)}
+                                         placeholder="その日の学習内容や気づきを記録..."
+                                         disabled={!selectedDate}
+                                         className="w-full h-28 p-2 bg-gray-700 rounded-md disabled:opacity-50"
+                                     ></textarea>
+                                 </div>
+                             </div>
+                             <button onClick={handleSaveCalendarEntry} disabled={!selectedDate || !currentCertId} className="w-full mt-4 bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">
+                                 {currentCertId ? 'この日の記録を保存' : '先に資格を選択'}
+                             </button>
+                             {selectedDate && data.calendar?.[selectedDate.toISOString().split('T')[0]]?.report && (
+                                 <div className="mt-4">
+                                     <h4 className="font-bold text-lg mb-2">保存されたレポート</h4>
+                                     <div className="p-3 bg-gray-700/50 rounded-lg text-sm whitespace-pre-wrap max-h-32 overflow-y-auto">{data.calendar[selectedDate.toISOString().split('T')[0]].report}</div>
+                                 </div>
+                             )}
                         </div>
                     </div>
                 </div>
@@ -439,6 +482,7 @@
         const App = () => {
             // --- State定義 ---
             const [user, setUser] = useState(null);
+            const [userId, setUserId] = useState(null);
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
             
@@ -456,6 +500,7 @@
             const [reporter, setReporter] = useState('熱血コーチ');
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [modalContent, setModalContent] = useState({ title: '', body: '', onConfirm: null });
+            const [isAiReportModalOpen, setIsAiReportModalOpen] = useState(false);
             
             const [viewDate, setViewDate] = useState(new Date());
             const [selectedDate, setSelectedDate] = useState(null);
@@ -468,23 +513,47 @@
             useEffect(() => {
                 if (firebaseServices.current) return;
                 try {
-                    const firebaseConfig = JSON.parse(__firebase_config);
-                    if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "YOUR_FIREBASE_API_KEY") throw new Error("FirebaseのAPIキーが設定されていません。");
+                    const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+                    if (!firebaseConfig.projectId) throw new Error("Firebaseの設定が不完全です。");
+
                     const app = initializeApp(firebaseConfig);
                     const auth = getAuth(app);
                     const db = getFirestore(app);
+                    setLogLevel('debug');
                     firebaseServices.current = { app, auth, db };
-                    getRedirectResult(auth).catch((err) => { console.error("Redirect Error:", err); setError(`Googleログインに失敗: ${err.code}`); });
-                    const unsubscribe = onAuthStateChanged(auth, (currentUser) => { setUser(currentUser); setLoading(false); });
+
+                    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+                        if (currentUser) {
+                            setUser(currentUser);
+                            setUserId(currentUser.uid);
+                        } else {
+                            // 認証トークンがあればカスタムログイン、なければ匿名ログイン
+                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                                await signInWithCustomToken(auth, __initial_auth_token);
+                            } else {
+                                await signInAnonymously(auth);
+                            }
+                        }
+                        setLoading(false);
+                    });
                     return () => unsubscribe();
-                } catch (err) { console.error("Firebase Init Error:", err); setError(err.message); setLoading(false); }
+                } catch (err) {
+                    console.error("Firebase Init Error:", err);
+                    setError(err.message);
+                    setLoading(false);
+                }
             }, []);
 
             // --- データ購読 ---
             useEffect(() => {
-                if (!user || !firebaseServices.current) { setData({ certifications: [], progress: {}, calendar: {} }); return; }
-                const { db, app } = firebaseServices.current;
-                const userDocRef = doc(db, 'artifacts', app.options.appId, 'users', user.uid);
+                if (!userId || !firebaseServices.current) {
+                    setData({ certifications: [], progress: {}, calendar: {} });
+                    return;
+                }
+                const { db } = firebaseServices.current;
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const userDocRef = doc(db, 'artifacts', appId, 'users', userId);
+                
                 const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
                     if (docSnap.exists()) {
                         const d = docSnap.data();
@@ -493,46 +562,41 @@
                             progress: d.progress ? JSON.parse(d.progress) : {},
                             calendar: d.calendar ? JSON.parse(d.calendar) : {}
                         });
-                    } else { saveDataToFirestore({ certifications: [], progress: {}, calendar: {} }); }
-                }, (err) => { console.error("Data subscription error:", err); openModal('データ読み込みエラー', `エラー: ${err.code}`); });
+                    } else {
+                        // 新規ユーザーの場合、空のデータで初期化
+                        saveDataToFirestore({ certifications: [], progress: {}, calendar: {} });
+                    }
+                }, (err) => {
+                    console.error("Data subscription error:", err);
+                    openModal('データ読み込みエラー', `データの読み込みに失敗しました。エラー: ${err.code}`);
+                });
                 return () => unsubscribe();
-            }, [user]);
+            }, [userId]);
             
             // --- データ保存 ---
             const saveDataToFirestore = useCallback(async (fullDataToSave) => {
-                if (!user || !firebaseServices.current) return;
-                const { db, app } = firebaseServices.current;
-                const userDocRef = doc(db, 'artifacts', app.options.appId, 'users', user.uid);
+                if (!userId || !firebaseServices.current) return;
+                const { db } = firebaseServices.current;
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const userDocRef = doc(db, 'artifacts', appId, 'users', userId);
                 try {
                     await setDoc(userDocRef, {
                         certifications: JSON.stringify(fullDataToSave.certifications || []),
                         progress: JSON.stringify(fullDataToSave.progress || {}),
                         calendar: JSON.stringify(fullDataToSave.calendar || {})
                     });
-                } catch (err) { console.error("Save data error:", err); openModal('データ保存エラー', `エラー: ${err.message}`); }
-            }, [user]);
+                } catch (err) {
+                    console.error("Save data error:", err);
+                    openModal('データ保存エラー', `データの保存に失敗しました。エラー: ${err.message}`);
+                }
+            }, [userId]);
 
             // --- 認証ハンドラ ---
-            const handleGoogleLogin = async () => {
-                setError(null);
-                const { auth } = firebaseServices.current;
-                const provider = new GoogleAuthProvider();
-                await signInWithRedirect(auth, provider).catch(err => {
-                    console.error("Google login redirect error:", err);
-                    setError("Googleログインの準備に失敗しました。");
-                });
-            };
-            const handleAnonymousLogin = async () => {
-                setError(null);
-                const { auth } = firebaseServices.current;
-                await signInAnonymously(auth).catch(err => {
-                    console.error("Anonymous login error:", err);
-                    setError("匿名ログインに失敗しました。");
-                });
-            };
             const handleLogout = async () => {
                 const { auth } = firebaseServices.current;
-                await signOut(auth);
+                await auth.signOut();
+                setUser(null);
+                setUserId(null);
             };
 
             // --- モーダル制御 ---
@@ -553,7 +617,16 @@
                 const updatedCerts = editingCert ? data.certifications.map(c => c.id === newCert.id ? newCert : c) : [...data.certifications, newCert];
                 await saveDataToFirestore({ ...data, certifications: updatedCerts });
                 setEditingCert(null);
+                setCertForm({ name: '', difficulty: 3, necessity: 3, gai: 3 });
             };
+            useEffect(() => {
+                if (editingCert) {
+                    setCertForm(editingCert);
+                } else {
+                    setCertForm({ name: '', difficulty: 3, necessity: 3, gai: 3 });
+                }
+            }, [editingCert]);
+
             const handleDeleteCert = (id) => {
                 openModal('確認', 'この資格情報を削除しますか？\n関連する進捗データもすべて削除されます。', async () => {
                     const updatedCerts = data.certifications.filter(c => c.id !== id);
@@ -594,7 +667,8 @@
                 reader.readAsBinaryString(file); e.target.value = null;
             };
             const handleProgressFileUpload = (e) => {
-                const file = e.target.files[0]; if (!file || !currentCertId) { openModal("エラー", "先に学習中の資格を選択してください。"); return; }
+                const file = e.target.files[0]; if (!file) return;
+                if (!currentCertId) { openModal("エラー", "先に学習中の資格を選択してください。"); e.target.value = null; return; }
                 const reader = new FileReader();
                 reader.onload = async (event) => {
                     try {
@@ -621,7 +695,7 @@
                         openModal('成功', '学習項目のアップロードが完了しました！');
                     } catch (error) { openModal('ファイル読み込みエラー', `エラー: ${error.message}`); }
                 };
-                reader.readAsBinaryString(file);
+                reader.readAsBinaryString(file); e.target.value = null;
             };
             const handleProgressCheckbox = async (minorId, majorId) => {
                 const updatedProgress = JSON.parse(JSON.stringify(data.progress));
@@ -736,24 +810,46 @@
                 return { totalCerts, inProgressCertsCount, details };
             }, [data]);
 
-
             // --- AIレポート生成 ---
+            const generateReportWithExponentialBackoff = async (payload, retries = 5, delay = 1000) => {
+                const apiKey = ""; // APIキーは環境によって自動的に挿入されます
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+                
+                for (let i = 0; i < retries; i++) {
+                    try {
+                        const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                        if (response.status === 429 || response.status >= 500) { // Too Many Requests or Server Error
+                            throw new Error(`API Error ${response.status}`);
+                        }
+                        if (!response.ok) {
+                           const errorBody = await response.json();
+                           console.error("API Error Body:", errorBody);
+                           throw new Error(`APIエラー: ${response.status} ${response.statusText}`);
+                        }
+                        const result = await response.json();
+                        const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+                        if (text) return text;
+                        else throw new Error('レポートのテキストが取得できませんでした。');
+                    } catch (err) {
+                        if (i === retries - 1) throw err;
+                        await new Promise(res => setTimeout(res, delay));
+                        delay *= 2; // Exponential backoff
+                    }
+                }
+            };
+
             const generateReport = async () => {
                 setLoadingReport(true); setReport('');
                 try {
                     if (!currentCertId) throw new Error('レポートを生成する資格を選択してください。');
                     const prompt = `あなたは「${reporter}」です。以下の学習状況を分析し、そのキャラクターになりきって学習者を力強く励ます評価と、具体的で実行可能な次のアクションを提案してください。レポートは情熱的かつ分かりやすく、markdown形式で記述してください。\n\n### 学習状況\n- **資格名**: ${certName}\n- **目標取得日までの残り日数**: ${daysRemaining !== null ? `${daysRemaining}日` : '未設定'}\n- **累計学習時間**: ${Math.floor(totalStudyTime / 60)}時間 ${totalStudyTime % 60}分\n- **総学習項目数**: ${totalTasks}\n- **完了項目数**: ${completedTasks}\n- **進捗率**: ${progressPercent.toFixed(1)}%`;
                     const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
-                    const apiKey = "YOUR_GEMINI_API_KEY_HERE";
-                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-                    if (apiKey === "YOUR_GEMINI_API_KEY_HERE") throw new Error("Gemini APIキーが設定されていません。");
-                    const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                    if (!response.ok) throw new Error(`APIエラー: ${response.status} ${response.statusText}`);
-                    const result = await response.json();
-                    const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
-                    if (text) setReport(text);
-                    else throw new Error('レポートのテキストが取得できませんでした。');
-                } catch (err) { console.error("Report generation failed:", err); setReport(`レポート生成中にエラーが発生しました: ${err.message}`); }
+                    const text = await generateReportWithExponentialBackoff(payload);
+                    setReport(text);
+                } catch (err) {
+                    console.error("Report generation failed:", err);
+                    openModal('レポート生成エラー', `エラーが発生しました: ${err.message}`);
+                }
                 setLoadingReport(false);
             };
 
@@ -763,23 +859,69 @@
                     let detailsText = comprehensiveData.details.map(d => 
                         `- **資格名**: ${d.name}\n  - **進捗率**: ${d.progressPercent.toFixed(1)}%\n  - **累計学習時間**: ${Math.floor(d.totalStudyTime / 60)}時間 ${d.totalStudyTime % 60}分\n  - **目標日までの残り日数**: ${d.daysRemaining !== null ? `${d.daysRemaining}日` : '未設定'}`
                     ).join('\n');
+                    if (!detailsText) detailsText = "学習中の資格はありません。";
 
                     const prompt = `あなたは「${reporter}」です。以下の学習状況全体を分析し、学習者を力強く励ます総合的な評価と、今後の学習戦略について具体的なアドバイスを提案してください。レポートは情熱的かつ分かりやすく、markdown形式で記述してください。\n\n### 全体状況\n- **総登録資格数**: ${comprehensiveData.totalCerts}\n- **学習中の資格数**: ${comprehensiveData.inProgressCertsCount}\n\n### 学習中資格の詳細\n${detailsText}`;
                     
                     const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
-                    const apiKey = "YOUR_GEMINI_API_KEY_HERE";
-                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-                    if (apiKey === "YOUR_GEMINI_API_KEY_HERE") throw new Error("Gemini APIキーが設定されていません。");
-                    const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                    if (!response.ok) throw new Error(`APIエラー: ${response.status} ${response.statusText}`);
-                    const result = await response.json();
-                    const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
-                    if (text) setReport(text);
-                    else throw new Error('レポートのテキストが取得できませんでした。');
-                } catch (err) { console.error("Comprehensive report generation failed:", err); setReport(`総合レポート生成中にエラーが発生しました: ${err.message}`); }
+                    const text = await generateReportWithExponentialBackoff(payload);
+                    setReport(text);
+                } catch (err) {
+                    console.error("Comprehensive report generation failed:", err);
+                    openModal('レポート生成エラー', `エラーが発生しました: ${err.message}`);
+                }
                 setLoadingReport(false);
             };
+
+            // --- レポート関連ハンドラ ---
+            const handlePdfExport = async () => {
+                const reportElement = document.getElementById('report-content');
+                if (!reportElement) return;
+                openModal("PDF生成中", "レポートのPDFを生成しています...");
+                try {
+                    const canvas = await html2canvas(reportElement, { backgroundColor: '#111827' });
+                    const imgData = canvas.toDataURL('image/png');
+                    const pdf = new jsPDF('p', 'mm', 'a4');
+                    const pdfWidth = pdf.internal.pageSize.getWidth();
+                    const pdfHeight = pdf.internal.pageSize.getHeight();
+                    const imgWidth = canvas.width;
+                    const imgHeight = canvas.height;
+                    const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
+                    const imgX = (pdfWidth - imgWidth * ratio) / 2;
+                    const imgY = 10;
+                    pdf.addImage(imgData, 'PNG', imgX, imgY, imgWidth * ratio, imgHeight * ratio);
+                    pdf.save(`${certName || 'comprehensive'}_report_${new Date().toISOString().split('T')[0]}.pdf`);
+                } catch (err) {
+                    console.error("PDF Export Error: ", err);
+                    openModal("PDF生成エラー", `PDFの生成に失敗しました: ${err.message}`);
+                } finally {
+                    closeModal(); // Close the "generating" modal
+                }
+            };
+            const handleSaveReportToCalendar = async () => {
+                if (!selectedDate || !report) return;
+                const dateKey = selectedDate.toISOString().split('T')[0];
+                const updatedCalendar = JSON.parse(JSON.stringify(data.calendar || {}));
+                if (!updatedCalendar[dateKey]) updatedCalendar[dateKey] = {};
+                updatedCalendar[dateKey].report = report;
+                await saveDataToFirestore({ ...data, calendar: updatedCalendar });
+                openModal('保存完了', `${dateKey} にレポートを保存しました。`);
+            };
             
+            // カレンダーの日付選択時に、その日の記録をフォームに反映
+            useEffect(() => {
+                if (selectedDate && data.calendar) {
+                    const dateKey = selectedDate.toISOString().split('T')[0];
+                    const dayData = data.calendar[dateKey];
+                    setNote(dayData?.note || '');
+                    setStudyTime(dayData?.studyLog?.[currentCertId] || '');
+                } else {
+                    setNote('');
+                    setStudyTime('');
+                }
+            }, [selectedDate, currentCertId, data.calendar]);
+
+
             // --- UIレンダリング ---
             if (loading) { return <div className="flex items-center justify-center h-full"><h2 className="text-2xl font-bold">接続中...</h2></div>; }
             if (!user) {
@@ -787,17 +929,8 @@
                     <div className="flex flex-col items-center justify-center h-full">
                         <div className="text-center p-8 bg-gray-800 rounded-lg shadow-2xl">
                             <h1 className="text-4xl font-extrabold text-white mb-4" style={{fontFamily: "'Inter', sans-serif"}}>資格取得管理ダッシュボード</h1>
-                            <p className="text-gray-400 mb-8">ログイン方法を選択してください</p>
+                            <p className="text-gray-400 mb-8">最初にデータをロードしています...</p>
                             {error && <p className="text-red-400 mb-4 bg-red-900/50 p-3 rounded-md">{error}</p>}
-                            <div className="space-y-4">
-                                <button onClick={handleGoogleLogin} disabled={!!error} className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-200 text-gray-800 font-bold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                                    <svg className="w-6 h-6" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path><path fill="none" d="M0 0h48v48H0z"></path></svg>
-                                    Googleでログイン
-                                </button>
-                                <button onClick={handleAnonymousLogin} disabled={!!error} className="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                                    匿名で続ける
-                                </button>
-                            </div>
                         </div>
                     </div>
                 );
@@ -810,17 +943,34 @@
                             <h3 className="text-lg font-bold text-white mb-4">{modalContent.title}</h3>
                             <div className="text-gray-300 mb-6" style={{whiteSpace: 'pre-wrap'}}>{modalContent.body}</div>
                             <div className="flex justify-end space-x-4">
-                                {modalContent.onConfirm && <button onClick={() => { modalContent.onConfirm(); closeModal(); }} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg">はい</button>}
+                                {modalContent.onConfirm && <button onClick={() => { modalContent.onConfirm(); }} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg">はい</button>}
                                 <button onClick={closeModal} className="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg">{modalContent.onConfirm ? 'キャンセル' : '閉じる'}</button>
                             </div>
                         </div>
                     </div>}
+
+                    <AIReportModal
+                        isOpen={isAiReportModalOpen}
+                        onClose={() => setIsAiReportModalOpen(false)}
+                        reporter={reporter}
+                        setReporter={setReporter}
+                        generateReport={generateReport}
+                        generateComprehensiveReport={generateComprehensiveReport}
+                        loadingReport={loadingReport}
+                        report={report}
+                        handlePdfExport={handlePdfExport}
+                        handleSaveReportToCalendar={handleSaveReportToCalendar}
+                        selectedDate={selectedDate}
+                        certName={certName}
+                        currentCertId={currentCertId}
+                    />
+
                     <header className="text-center mb-8">
                         <div className="flex justify-center items-center relative">
                             <h1 className="text-4xl font-extrabold text-white" style={{fontFamily: "'Inter', sans-serif"}}>資格取得管理ダッシュボード</h1>
                             <button onClick={handleLogout} className="absolute right-0 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg">ログアウト</button>
                         </div>
-                        <div className="mt-2 text-xs text-gray-500 font-mono">ユーザー: {user.isAnonymous ? `ゲスト (${user.uid.substring(0,6)}...)` : user.displayName || 'Googleユーザー'}</div>
+                         <div className="mt-2 text-xs text-gray-500 font-mono">ユーザーID: {userId}</div>
                     </header>
                     <nav className="mb-8 border-b border-gray-700">
                         <div className="flex justify-center space-x-4">
@@ -860,6 +1010,7 @@
                             handleAddMinorItem={handleAddMinorItem}
                             handleProgressCheckbox={handleProgressCheckbox}
                             progressPercent={progressPercent}
+                            openModal={openModal}
                         />}
                         {currentTab === 'tab-3' && <ReportTab
                             data={data}
@@ -868,13 +1019,6 @@
                             daysRemaining={daysRemaining}
                             certName={certName}
                             totalStudyTime={totalStudyTime}
-                            reporter={reporter}
-                            setReporter={setReporter}
-                            report={report}
-                            loadingReport={loadingReport}
-                            generateReport={generateReport}
-                            generateComprehensiveReport={generateComprehensiveReport}
-                            saveDataToFirestore={saveDataToFirestore}
                             viewDate={viewDate}
                             setViewDate={setViewDate}
                             selectedDate={selectedDate}
@@ -883,6 +1027,9 @@
                             setNote={setNote}
                             studyTime={studyTime}
                             setStudyTime={setStudyTime}
+                            saveDataToFirestore={saveDataToFirestore}
+                            openModal={openModal}
+                            setIsAiReportModalOpen={setIsAiReportModalOpen}
                         />}
                     </main>
                 </div>
@@ -894,6 +1041,7 @@
     </script>
 </body>
 </html>
+
 
 
 
