@@ -41,7 +41,7 @@
     <!-- Firebase接続設定 -->
     <script>
         const __firebase_config = JSON.stringify({
-            apiKey: "AIzaSyDUfeARP0PATgGlG17Grqit29-U0ya5vhQ", // ご自身のFirebaseプロジェクトのAPIキーに置き換えてください
+            apiKey: "AIzaSyDUfeARP0PATgGIG17Grqit29-U0ya5vhQ", // ★★★ APIキーを設定しました ★★★
             authDomain: "shikaku-dashboard.firebaseapp.com",
             projectId: "shikaku-dashboard",
             storageBucket: "shikaku-dashboard.appspot.com",
@@ -143,6 +143,147 @@
                     <div className="absolute flex flex-col items-center justify-center">
                         <span className="text-4xl font-bold text-white">{progressPercent.toFixed(1)}%</span>
                         <span className="text-sm text-gray-400">進捗率</span>
+                    </div>
+                </div>
+            );
+        };
+
+        // ★★★ 修正点：ReportTabコンポーネントをAppコンポーネントの前に定義 ★★★
+        const ReportTab = ({ data, currentCertId, progressPercent, daysRemaining, certName, reporter, setReporter, report, loadingReport, generateReport, saveDataToFirestore }) => {
+            const [viewDate, setViewDate] = useState(new Date());
+            const [selectedDate, setSelectedDate] = useState(null);
+            const [note, setNote] = useState('');
+
+            useEffect(() => {
+                if (selectedDate) {
+                    const dateKey = selectedDate.toISOString().split('T')[0];
+                    setNote(data.calendar?.[dateKey]?.note || '');
+                } else {
+                    setNote('');
+                }
+            }, [selectedDate, data.calendar]);
+
+            const handleSaveNote = async () => {
+                if (!selectedDate) return;
+                const dateKey = selectedDate.toISOString().split('T')[0];
+                const updatedCalendar = JSON.parse(JSON.stringify(data.calendar || {}));
+                if (!updatedCalendar[dateKey]) updatedCalendar[dateKey] = {};
+                updatedCalendar[dateKey].note = note;
+                await saveDataToFirestore({ ...data, calendar: updatedCalendar });
+            };
+            
+            const handleSaveReportToCalendar = async () => {
+                if (!selectedDate || !report) return;
+                const dateKey = selectedDate.toISOString().split('T')[0];
+                const updatedCalendar = JSON.parse(JSON.stringify(data.calendar || {}));
+                if (!updatedCalendar[dateKey]) updatedCalendar[dateKey] = {};
+                updatedCalendar[dateKey].report = report;
+                await saveDataToFirestore({ ...data, calendar: updatedCalendar });
+                alert(`${dateKey} にレポートを保存しました。`);
+            };
+
+            const handlePdfExport = () => {
+                if (!report) return;
+                const doc = new jsPDF();
+                // jsPDFは標準で日本語をサポートしていないため、フォントの組み込みが必要。
+                // ここでは単純なテキスト出力にとどめます。文字化けする可能性があります。
+                const splitText = doc.splitTextToSize(report, 180);
+                doc.text(splitText, 10, 10);
+                doc.save(`${certName}_report_${new Date().toISOString().split('T')[0]}.pdf`);
+            };
+
+            const calendarDays = useMemo(() => {
+                const year = viewDate.getFullYear();
+                const month = viewDate.getMonth();
+                const firstDayOfMonth = new Date(year, month, 1).getDay();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                const days = [];
+                for (let i = 0; i < firstDayOfMonth; i++) days.push(null);
+                for (let i = 1; i <= daysInMonth; i++) days.push(new Date(year, month, i));
+                return days;
+            }, [viewDate]);
+            
+            return (
+                <div className="p-4 space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col items-center justify-center">
+                            <div className="text-6xl font-bold text-indigo-400">
+                                {daysRemaining !== null ? (daysRemaining >= 0 ? daysRemaining : '期限切れ') : '-'}
+                            </div>
+                            <div className="text-lg text-gray-400 mt-2">目標日までの日数</div>
+                        </div>
+                        <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col items-center justify-center col-span-1">
+                             <div className="w-40 h-40">
+                                <ProgressDoughnutChart progressPercent={currentCertId ? progressPercent : 0} />
+                             </div>
+                             <div className="text-lg text-gray-400 mt-4">{certName || '資格未選択'}</div>
+                        </div>
+                        <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col justify-center">
+                            <h3 className="text-xl font-bold mb-4">AIレポーター設定</h3>
+                            <p className="text-sm text-gray-400 mb-4">レポートを生成するキャラクターを設定します。</p>
+                            <input type="text" value={reporter} onChange={(e) => setReporter(e.target.value)} placeholder="例：スティーブ・ジョブズ" className="w-full p-2 bg-gray-700 rounded-md"/>
+                            <button onClick={generateReport} className="mt-4 w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-500 disabled:cursor-not-allowed" disabled={loadingReport || !currentCertId}>
+                                {loadingReport ? '生成中...' : 'レポートを生成'}
+                            </button>
+                        </div>
+                    </div>
+
+                    {report && (
+                        <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
+                            <h3 className="text-2xl font-bold mb-4">AIからのレポート</h3>
+                            <div className="prose prose-invert max-w-none p-4 bg-gray-700/50 rounded-lg whitespace-pre-wrap leading-relaxed" dangerouslySetInnerHTML={{ __html: report.replace(/\n/g, '<br />') }}></div>
+                            <div className="flex justify-end gap-4 mt-4">
+                                <button onClick={handlePdfExport} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">PDF出力</button>
+                                <button onClick={handleSaveReportToCalendar} disabled={!selectedDate} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">選択中の日付に保存</button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
+                            <div className="flex justify-between items-center mb-4">
+                                <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() - 1)))} className="p-2 rounded-full hover:bg-gray-700">&lt;</button>
+                                <h3 className="text-xl font-bold">{viewDate.getFullYear()}年 {viewDate.getMonth() + 1}月</h3>
+                                <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() + 1)))} className="p-2 rounded-full hover:bg-gray-700">&gt;</button>
+                            </div>
+                            <div className="grid grid-cols-7 gap-1 text-center text-xs text-gray-400 mb-2">
+                                {['日', '月', '火', '水', '木', '金', '土'].map(d => <div key={d}>{d}</div>)}
+                            </div>
+                            <div className="grid grid-cols-7 gap-1">
+                                {calendarDays.map((day, i) => (
+                                    <button
+                                        key={i}
+                                        onClick={() => day && setSelectedDate(day)}
+                                        className={`w-full aspect-square rounded-lg flex items-center justify-center text-sm transition-colors
+                                            ${day ? 'hover:bg-gray-700' : 'cursor-default'}
+                                            ${day && selectedDate && day.toDateString() === selectedDate.toDateString() ? 'day-selected' : ''}
+                                            ${day && data.calendar?.[day.toISOString().split('T')[0]] ? 'bg-indigo-900/50' : 'bg-gray-700/30'}
+                                        `}
+                                    >
+                                        {day?.getDate()}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
+                             <h3 className="text-xl font-bold mb-4">
+                                {selectedDate ? `${selectedDate.toLocaleDateString('ja-JP')} の記録` : '日付を選択してください'}
+                            </h3>
+                            <textarea
+                                value={note}
+                                onChange={(e) => setNote(e.target.value)}
+                                placeholder="その日の学習内容やメモを記録..."
+                                disabled={!selectedDate}
+                                className="w-full h-40 p-2 bg-gray-700 rounded-md mb-4 disabled:opacity-50"
+                            ></textarea>
+                            <button onClick={handleSaveNote} disabled={!selectedDate} className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">メモを保存</button>
+                            {selectedDate && data.calendar?.[selectedDate.toISOString().split('T')[0]]?.report && (
+                                <div className="mt-4">
+                                    <h4 className="font-bold text-lg mb-2">保存されたレポート</h4>
+                                    <div className="p-3 bg-gray-700/50 rounded-lg text-sm whitespace-pre-wrap max-h-32 overflow-y-auto">{data.calendar[selectedDate.toISOString().split('T')[0]].report}</div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             );
@@ -620,151 +761,12 @@
             );
         };
         
-        const ReportTab = ({ data, currentCertId, progressPercent, daysRemaining, certName, reporter, setReporter, report, loadingReport, generateReport, saveDataToFirestore }) => {
-            const [viewDate, setViewDate] = useState(new Date());
-            const [selectedDate, setSelectedDate] = useState(null);
-            const [note, setNote] = useState('');
-
-            useEffect(() => {
-                if (selectedDate) {
-                    const dateKey = selectedDate.toISOString().split('T')[0];
-                    setNote(data.calendar?.[dateKey]?.note || '');
-                } else {
-                    setNote('');
-                }
-            }, [selectedDate, data.calendar]);
-
-            const handleSaveNote = async () => {
-                if (!selectedDate) return;
-                const dateKey = selectedDate.toISOString().split('T')[0];
-                const updatedCalendar = JSON.parse(JSON.stringify(data.calendar || {}));
-                if (!updatedCalendar[dateKey]) updatedCalendar[dateKey] = {};
-                updatedCalendar[dateKey].note = note;
-                await saveDataToFirestore({ ...data, calendar: updatedCalendar });
-            };
-            
-            const handleSaveReportToCalendar = async () => {
-                if (!selectedDate || !report) return;
-                const dateKey = selectedDate.toISOString().split('T')[0];
-                const updatedCalendar = JSON.parse(JSON.stringify(data.calendar || {}));
-                if (!updatedCalendar[dateKey]) updatedCalendar[dateKey] = {};
-                updatedCalendar[dateKey].report = report;
-                await saveDataToFirestore({ ...data, calendar: updatedCalendar });
-                alert(`${dateKey} にレポートを保存しました。`);
-            };
-
-            const handlePdfExport = () => {
-                if (!report) return;
-                const doc = new jsPDF();
-                // jsPDFは標準で日本語をサポートしていないため、フォントの組み込みが必要。
-                // ここでは単純なテキスト出力にとどめます。文字化けする可能性があります。
-                const splitText = doc.splitTextToSize(report, 180);
-                doc.text(splitText, 10, 10);
-                doc.save(`${certName}_report_${new Date().toISOString().split('T')[0]}.pdf`);
-            };
-
-            const calendarDays = useMemo(() => {
-                const year = viewDate.getFullYear();
-                const month = viewDate.getMonth();
-                const firstDayOfMonth = new Date(year, month, 1).getDay();
-                const daysInMonth = new Date(year, month + 1, 0).getDate();
-                const days = [];
-                for (let i = 0; i < firstDayOfMonth; i++) days.push(null);
-                for (let i = 1; i <= daysInMonth; i++) days.push(new Date(year, month, i));
-                return days;
-            }, [viewDate]);
-            
-            return (
-                <div className="p-4 space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col items-center justify-center">
-                            <div className="text-6xl font-bold text-indigo-400">
-                                {daysRemaining !== null ? (daysRemaining >= 0 ? daysRemaining : '期限切れ') : '-'}
-                            </div>
-                            <div className="text-lg text-gray-400 mt-2">目標日までの日数</div>
-                        </div>
-                        <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col items-center justify-center col-span-1">
-                             <div className="w-40 h-40">
-                                <ProgressDoughnutChart progressPercent={currentCertId ? progressPercent : 0} />
-                             </div>
-                             <div className="text-lg text-gray-400 mt-4">{certName || '資格未選択'}</div>
-                        </div>
-                        <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col justify-center">
-                            <h3 className="text-xl font-bold mb-4">AIレポーター設定</h3>
-                            <p className="text-sm text-gray-400 mb-4">レポートを生成するキャラクターを設定します。</p>
-                            <input type="text" value={reporter} onChange={(e) => setReporter(e.target.value)} placeholder="例：スティーブ・ジョブズ" className="w-full p-2 bg-gray-700 rounded-md"/>
-                            <button onClick={generateReport} className="mt-4 w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-500 disabled:cursor-not-allowed" disabled={loadingReport || !currentCertId}>
-                                {loadingReport ? '生成中...' : 'レポートを生成'}
-                            </button>
-                        </div>
-                    </div>
-
-                    {report && (
-                        <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
-                            <h3 className="text-2xl font-bold mb-4">AIからのレポート</h3>
-                            <div className="prose prose-invert max-w-none p-4 bg-gray-700/50 rounded-lg whitespace-pre-wrap leading-relaxed" dangerouslySetInnerHTML={{ __html: report.replace(/\n/g, '<br />') }}></div>
-                            <div className="flex justify-end gap-4 mt-4">
-                                <button onClick={handlePdfExport} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">PDF出力</button>
-                                <button onClick={handleSaveReportToCalendar} disabled={!selectedDate} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">選択中の日付に保存</button>
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
-                            <div className="flex justify-between items-center mb-4">
-                                <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() - 1)))} className="p-2 rounded-full hover:bg-gray-700">&lt;</button>
-                                <h3 className="text-xl font-bold">{viewDate.getFullYear()}年 {viewDate.getMonth() + 1}月</h3>
-                                <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() + 1)))} className="p-2 rounded-full hover:bg-gray-700">&gt;</button>
-                            </div>
-                            <div className="grid grid-cols-7 gap-1 text-center text-xs text-gray-400 mb-2">
-                                {['日', '月', '火', '水', '木', '金', '土'].map(d => <div key={d}>{d}</div>)}
-                            </div>
-                            <div className="grid grid-cols-7 gap-1">
-                                {calendarDays.map((day, i) => (
-                                    <button
-                                        key={i}
-                                        onClick={() => day && setSelectedDate(day)}
-                                        className={`w-full aspect-square rounded-lg flex items-center justify-center text-sm transition-colors
-                                            ${day ? 'hover:bg-gray-700' : 'cursor-default'}
-                                            ${day && selectedDate && day.toDateString() === selectedDate.toDateString() ? 'day-selected' : ''}
-                                            ${day && data.calendar?.[day.toISOString().split('T')[0]] ? 'bg-indigo-900/50' : 'bg-gray-700/30'}
-                                        `}
-                                    >
-                                        {day?.getDate()}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                        <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
-                             <h3 className="text-xl font-bold mb-4">
-                                {selectedDate ? `${selectedDate.toLocaleDateString('ja-JP')} の記録` : '日付を選択してください'}
-                            </h3>
-                            <textarea
-                                value={note}
-                                onChange={(e) => setNote(e.target.value)}
-                                placeholder="その日の学習内容やメモを記録..."
-                                disabled={!selectedDate}
-                                className="w-full h-40 p-2 bg-gray-700 rounded-md mb-4 disabled:opacity-50"
-                            ></textarea>
-                            <button onClick={handleSaveNote} disabled={!selectedDate} className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">メモを保存</button>
-                            {selectedDate && data.calendar?.[selectedDate.toISOString().split('T')[0]]?.report && (
-                                <div className="mt-4">
-                                    <h4 className="font-bold text-lg mb-2">保存されたレポート</h4>
-                                    <div className="p-3 bg-gray-700/50 rounded-lg text-sm whitespace-pre-wrap max-h-32 overflow-y-auto">{data.calendar[selectedDate.toISOString().split('T')[0]].report}</div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            );
-        };
-        
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
 </body>
 </html>
+
 
 
 
