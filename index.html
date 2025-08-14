@@ -25,6 +25,14 @@
         .animate-fade-in-scale {
             animation: fade-in-scale 0.3s ease-out forwards;
         }
+        .accordion-content {
+            transition: max-height 0.3s ease-out, padding 0.3s ease-out;
+            max-height: 0;
+            overflow: hidden;
+        }
+        .accordion-content.open {
+            max-height: 1000px; /* 十分な高さを設定 */
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100">
@@ -53,7 +61,6 @@
 
         // ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
         // 【重要】ご自身のFirebaseプロジェクトの設定情報をこちらに貼り付けてください
-        // この部分が正しくないと、"redirect_uri_mismatch" エラーが発生します。
         const firebaseConfig = {
             apiKey: "AIzaSyDUfeARP0PATgGlG17Grqit29-U0ya5vhQ",
             authDomain: "shikaku-dashboard.firebaseapp.com",
@@ -65,8 +72,40 @@
         };
         // ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 
+        // --- Hooks ---
+        const useMediaQuery = (query) => {
+            const [matches, setMatches] = useState(false);
+            useEffect(() => {
+                const media = window.matchMedia(query);
+                if (media.matches !== matches) {
+                    setMatches(media.matches);
+                }
+                const listener = () => setMatches(media.matches);
+                window.addEventListener('resize', listener);
+                return () => window.removeEventListener('resize', listener);
+            }, [matches, query]);
+            return matches;
+        };
 
         // --- UIコンポーネント ---
+        const Accordion = ({ title, children }) => {
+            const [isOpen, setIsOpen] = useState(false);
+            return (
+                <div className="bg-gray-800 rounded-lg shadow-lg">
+                    <button
+                        onClick={() => setIsOpen(!isOpen)}
+                        className="w-full flex justify-between items-center p-4 text-left"
+                    >
+                        <h3 className="text-xl font-bold">{title}</h3>
+                        <span className={`transform transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}>▼</span>
+                    </button>
+                    <div className={`accordion-content ${isOpen ? 'open p-4 border-t border-gray-700' : ''}`}>
+                        {children}
+                    </div>
+                </div>
+            );
+        };
+        
         const BubbleChart = ({ data }) => {
             const canvasRef = useRef(null);
             const chartRef = useRef(null);
@@ -103,7 +142,7 @@
             return (
                 <div className="relative w-full h-full">
                     <canvas ref={canvasRef}></canvas>
-                    {(!data || data.length === 0) && <div className="absolute inset-0 flex items-center justify-center text-gray-500 bg-gray-800/50 rounded-lg p-4 text-center">表示するデータがありません。<br/>左のフォームから資格情報を追加またはアップロードしてください。</div>}
+                    {(!data || data.length === 0) && <div className="absolute inset-0 flex items-center justify-center text-gray-500 bg-gray-800/50 rounded-lg p-4 text-center">表示するデータがありません。<br/>資格情報を追加またはアップロードしてください。</div>}
                 </div>
             );
         };
@@ -112,7 +151,7 @@
             const canvasRef = useRef(null);
             const chartRef = useRef(null);
             useEffect(() => {
-                const currentCanvas = canvasRef.current; // ★★★ この行を修正 ★★★
+                const currentCanvas = canvasRef.current;
                 if (!currentCanvas || typeof Chart === 'undefined') return;
                 if (chartRef.current) chartRef.current.destroy();
                 const ctx = currentCanvas.getContext('2d');
@@ -160,7 +199,6 @@
                         </div>
 
                         <div className="flex flex-col md:flex-row gap-6">
-                            {/* Left side: Settings and actions */}
                             <div className="w-full md:w-1/3 space-y-4 flex flex-col">
                                 <div>
                                     <h4 className="text-lg font-bold mb-2">AIレポーター設定</h4>
@@ -191,7 +229,6 @@
                                 </div>
                             </div>
 
-                            {/* Right side: Report display */}
                             <div className="w-full md:w-2/3 bg-gray-900 p-4 rounded-lg h-80 md:h-96 overflow-y-auto">
                                 {loadingReport ? (
                                     <div className="flex items-center justify-center h-full text-gray-400">レポートを生成中...</div>
@@ -216,6 +253,7 @@
 
 
         const PrioritizationTab = ({ data, filters, handleFilterChange, certForm, handleFormChange, handleAddUpdateCert, editingCert, setEditingCert, handleCertFileUpload, handleDeleteCert }) => {
+            const isDesktop = useMediaQuery('(min-width: 1024px)');
             const filteredCerts = useMemo(() => {
                 return data.certifications.filter(cert => 
                     cert.difficulty >= filters.difficulty.min && cert.difficulty <= filters.difficulty.max &&
@@ -224,47 +262,58 @@
                 );
             }, [data.certifications, filters]);
 
-            return (
-                <div className="flex flex-col lg:flex-row p-2 md:p-4 gap-4">
-                    {/* Left Column */}
-                    <div className="w-full lg:w-1/3 space-y-4">
-                        <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                            <h3 className="text-xl font-bold mb-2">1. 資格情報アップロード</h3>
-                            <p className="text-sm text-gray-400 mb-2">Excel(.xlsx)またはJSON(.json)形式。<br/>Excel: A列=資格名, B=難易度, C=必要性, D=やりがい (2行目から)</p>
-                            <input type="file" accept=".json,.xlsx,.xls" onChange={handleCertFileUpload} className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100 cursor-pointer"/>
-                        </div>
-                        <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                            <h3 className="text-xl font-bold mb-4">2. フィルター</h3>
-                            {['difficulty', 'necessity', 'gai'].map(key => {
-                                const labels = {difficulty: '難易度', necessity: '必要性', gai: 'やりがい'};
-                                return (
-                                <div key={key} className="mb-2">
-                                    <label className="block text-sm font-medium mb-1">{labels[key]} ({filters[key].min} - {filters[key].max})</label>
-                                    <div className="flex items-center space-x-2">
-                                        <span>1</span>
-                                        <input type="range" min="1" max="5" value={filters[key].min} onChange={e => handleFilterChange(key, 'min', e.target.value)} className="w-full" />
-                                        <input type="range" min="1" max="5" value={filters[key].max} onChange={e => handleFilterChange(key, 'max', e.target.value)} className="w-full" />
-                                        <span>5</span>
-                                    </div>
+            const LeftColumnContent = () => (
+                <div className="space-y-4">
+                    <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                        <h3 className="text-xl font-bold mb-2">1. 資格情報アップロード</h3>
+                        <p className="text-sm text-gray-400 mb-2">Excel(.xlsx)またはJSON(.json)形式。<br/>Excel: A列=資格名, B=難易度, C=必要性, D=やりがい (2行目から)</p>
+                        <input type="file" accept=".json,.xlsx,.xls" onChange={handleCertFileUpload} className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100 cursor-pointer"/>
+                    </div>
+                    <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                        <h3 className="text-xl font-bold mb-4">2. フィルター</h3>
+                        {['difficulty', 'necessity', 'gai'].map(key => {
+                            const labels = {difficulty: '難易度', necessity: '必要性', gai: 'やりがい'};
+                            return (
+                            <div key={key} className="mb-2">
+                                <label className="block text-sm font-medium mb-1">{labels[key]} ({filters[key].min} - {filters[key].max})</label>
+                                <div className="flex items-center space-x-2">
+                                    <span>1</span>
+                                    <input type="range" min="1" max="5" value={filters[key].min} onChange={e => handleFilterChange(key, 'min', e.target.value)} className="w-full" />
+                                    <input type="range" min="1" max="5" value={filters[key].max} onChange={e => handleFilterChange(key, 'max', e.target.value)} className="w-full" />
+                                    <span>5</span>
                                 </div>
-                            )})}
-                        </div>
-                        <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                            <h3 className="text-xl font-bold mb-4">{editingCert ? '資格情報の編集' : '3. 資格情報の手動追加'}</h3>
-                            <div className="space-y-4">
-                                <input type="text" name="name" value={certForm.name} onChange={handleFormChange} placeholder="資格名" className="w-full p-2 bg-gray-700 rounded-md"/>
-                                {['difficulty', 'necessity', 'gai'].map(key => (
-                                <div key={key}>
-                                    <label className="block text-sm font-medium mb-1">{({difficulty: '難易度', necessity: '必要性', gai: 'やりがい'})[key]} (1-5)</label>
-                                    <input type="number" name={key} value={certForm[key]} onChange={handleFormChange} min="1" max="5" className="w-full p-2 bg-gray-700 rounded-md"/>
-                                </div>
-                                ))}
-                                <button onClick={handleAddUpdateCert} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">{editingCert ? '更新' : '追加'}</button>
-                                {editingCert && <button onClick={() => setEditingCert(null)} className="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg mt-2">キャンセル</button>}
                             </div>
+                        )})}
+                    </div>
+                    <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                        <h3 className="text-xl font-bold mb-4">{editingCert ? '資格情報の編集' : '3. 資格情報の手動追加'}</h3>
+                        <div className="space-y-4">
+                            <input type="text" name="name" value={certForm.name} onChange={handleFormChange} placeholder="資格名" className="w-full p-2 bg-gray-700 rounded-md"/>
+                            {['difficulty', 'necessity', 'gai'].map(key => (
+                            <div key={key}>
+                                <label className="block text-sm font-medium mb-1">{({difficulty: '難易度', necessity: '必要性', gai: 'やりがい'})[key]} (1-5)</label>
+                                <input type="number" name={key} value={certForm[key]} onChange={handleFormChange} min="1" max="5" className="w-full p-2 bg-gray-700 rounded-md"/>
+                            </div>
+                            ))}
+                            <button onClick={handleAddUpdateCert} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">{editingCert ? '更新' : '追加'}</button>
+                            {editingCert && <button onClick={() => setEditingCert(null)} className="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg mt-2">キャンセル</button>}
                         </div>
                     </div>
-                    {/* Right Column */}
+                </div>
+            );
+
+            return (
+                <div className="flex flex-col lg:flex-row p-2 md:p-4 gap-4">
+                    <div className="w-full lg:w-1/3">
+                        {isDesktop ? <LeftColumnContent /> : (
+                            <div className="space-y-4">
+                                <Accordion title="1. 資格情報アップロード"><LeftColumnContent /></Accordion>
+                                <Accordion title="2. フィルター"><LeftColumnContent /></Accordion>
+                                <Accordion title="3. 資格情報の手動追加"><LeftColumnContent /></Accordion>
+                            </div>
+                        )}
+                    </div>
+                    
                     <div className="w-full lg:w-2/3 space-y-4">
                         <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
                             <div className="w-full h-[40vh] md:h-[50vh] lg:h-[60vh] min-h-[300px]">
@@ -299,41 +348,53 @@
         };
 
         const ProgressTab = ({ data, currentCertId, setCurrentCertId, saveDataToFirestore, handleProgressFileUpload, newMajorItemName, setNewMajorItemName, handleAddMajorItem, parentMajorItemId, setParentMajorItemId, newMinorItemName, setNewMinorItemName, handleAddMinorItem, handleProgressCheckbox, progressPercent, openModal }) => {
-            return (
-                <div className="flex flex-col lg:flex-row p-2 md:p-4 gap-4">
-                    {/* Left Column */}
-                    <div className="w-full lg:w-1/3 space-y-4">
-                        <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                            <h3 className="text-xl font-bold mb-4">学習中の資格設定</h3>
-                            <select value={currentCertId || ''} onChange={(e) => setCurrentCertId(e.target.value)} className="w-full p-2 bg-gray-700 rounded-md mb-4">
-                                <option value="">資格を選択...</option>
-                                {data.certifications.map((cert) => <option key={cert.id} value={cert.id}>{cert.name}</option>)}
+            const isDesktop = useMediaQuery('(min-width: 1024px)');
+
+            const LeftColumnContent = () => (
+                 <div className="space-y-4">
+                    <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                        <h3 className="text-xl font-bold mb-4">学習中の資格設定</h3>
+                        <select value={currentCertId || ''} onChange={(e) => setCurrentCertId(e.target.value)} className="w-full p-2 bg-gray-700 rounded-md mb-4">
+                            <option value="">資格を選択...</option>
+                            {data.certifications.map((cert) => <option key={cert.id} value={cert.id}>{cert.name}</option>)}
+                        </select>
+                        <label className="block text-sm font-medium mb-1">目標取得日</label>
+                        <input type="date" value={data.progress[currentCertId]?.targetDate || ''} onChange={async (e) => {
+                            if (!currentCertId) return;
+                            const updatedProgress = { ...data.progress, [currentCertId]: { ...(data.progress[currentCertId] || {}), targetDate: e.target.value } };
+                            await saveDataToFirestore({ ...data, progress: updatedProgress });
+                        }} className="w-full p-2 bg-gray-700 rounded-md"/>
+                    </div>
+                    <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                        <h3 className="text-xl font-bold mb-4">学習項目アップロード/追加</h3>
+                        <p className="text-sm text-gray-400 mb-2">Excelファイルをアップロード (●:大項目, ・:小項目)</p>
+                        <input type="file" accept=".xlsx" onChange={handleProgressFileUpload} className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100 cursor-pointer"/>
+                        <div className="mt-4 border-t border-gray-700 pt-4 space-y-2">
+                            <h4 className="text-lg font-bold mb-2">手動で追加</h4>
+                            <input type="text" value={newMajorItemName} onChange={(e) => setNewMajorItemName(e.target.value)} placeholder="大項目名" className="w-full p-2 bg-gray-700 rounded-md"/>
+                            <button onClick={handleAddMajorItem} disabled={!currentCertId} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">大項目を追加</button>
+                            <select value={parentMajorItemId} onChange={(e) => setParentMajorItemId(e.target.value)} className="w-full p-2 bg-gray-700 rounded-md mt-4">
+                                <option value="">親となる大項目を選択...</option>
+                                {Object.entries(data.progress[currentCertId]?.items || {}).map(([key, item]) => <option key={key} value={key}>{item.name}</option>)}
                             </select>
-                            <label className="block text-sm font-medium mb-1">目標取得日</label>
-                            <input type="date" value={data.progress[currentCertId]?.targetDate || ''} onChange={async (e) => {
-                                if (!currentCertId) return;
-                                const updatedProgress = { ...data.progress, [currentCertId]: { ...(data.progress[currentCertId] || {}), targetDate: e.target.value } };
-                                await saveDataToFirestore({ ...data, progress: updatedProgress });
-                            }} className="w-full p-2 bg-gray-700 rounded-md"/>
-                        </div>
-                        <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                            <h3 className="text-xl font-bold mb-4">学習項目アップロード/追加</h3>
-                            <p className="text-sm text-gray-400 mb-2">Excelファイルをアップロード (●:大項目, ・:小項目)</p>
-                            <input type="file" accept=".xlsx" onChange={handleProgressFileUpload} className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100 cursor-pointer"/>
-                            <div className="mt-4 border-t border-gray-700 pt-4 space-y-2">
-                                <h4 className="text-lg font-bold mb-2">手動で追加</h4>
-                                <input type="text" value={newMajorItemName} onChange={(e) => setNewMajorItemName(e.target.value)} placeholder="大項目名" className="w-full p-2 bg-gray-700 rounded-md"/>
-                                <button onClick={handleAddMajorItem} disabled={!currentCertId} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">大項目を追加</button>
-                                <select value={parentMajorItemId} onChange={(e) => setParentMajorItemId(e.target.value)} className="w-full p-2 bg-gray-700 rounded-md mt-4">
-                                    <option value="">親となる大項目を選択...</option>
-                                    {Object.entries(data.progress[currentCertId]?.items || {}).map(([key, item]) => <option key={key} value={key}>{item.name}</option>)}
-                                </select>
-                                <input type="text" value={newMinorItemName} onChange={(e) => setNewMinorItemName(e.target.value)} placeholder="小項目名" className="w-full p-2 bg-gray-700 rounded-md"/>
-                                <button onClick={handleAddMinorItem} disabled={!parentMajorItemId} className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">小項目を追加</button>
-                            </div>
+                            <input type="text" value={newMinorItemName} onChange={(e) => setNewMinorItemName(e.target.value)} placeholder="小項目名" className="w-full p-2 bg-gray-700 rounded-md"/>
+                            <button onClick={handleAddMinorItem} disabled={!parentMajorItemId} className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">小項目を追加</button>
                         </div>
                     </div>
-                    {/* Right Column */}
+                </div>
+            );
+
+            return (
+                <div className="flex flex-col lg:flex-row p-2 md:p-4 gap-4">
+                    <div className="w-full lg:w-1/3">
+                        {isDesktop ? <LeftColumnContent /> : (
+                            <div className="space-y-4">
+                                <Accordion title="学習中の資格設定"><LeftColumnContent /></Accordion>
+                                <Accordion title="学習項目アップロード/追加"><LeftColumnContent /></Accordion>
+                            </div>
+                        )}
+                    </div>
+                    
                     <div className="w-full lg:w-2/3 space-y-4">
                         <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
                             <h3 className="text-xl font-bold mb-4">{data.certifications.find(c => c.id === currentCertId)?.name || '資格を選択してください'}</h3>
@@ -1065,6 +1126,7 @@
     </script>
 </body>
 </html>
+
 
 
 
