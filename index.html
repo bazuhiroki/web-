@@ -45,7 +45,7 @@
     <script type="text/babel" data-type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { getAuth, onAuthStateChanged, signInAnonymously, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, onAuthStateChanged, signInAnonymously, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         
         const { useState, useEffect, useCallback, useMemo, useRef } = React;
         const { uuidv4, XLSX, Chart } = window;
@@ -54,13 +54,13 @@
         // ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
         // ご自身のFirebaseプロジェクトの設定情報をこちらに貼り付けてください
         // 取得方法: https://firebase.google.com/docs/web/setup#add-sdks-initialize
-        const firebaseConfig =  {
-            apiKey: "AIzaSyDUfeARP0PATgGlG17Grqit29-U0ya5vhQ",
-            authDomain: "shikaku-dashboard.firebaseapp.com",
-            projectId: "shikaku-dashboard",
-            storageBucket: "shikaku-dashboard.appspot.com",
-            messagingSenderId: "727535626459",
-            appId: "1:727535626459:web:aaf8fd5a49df92cc9004fe"
+        const firebaseConfig = {
+          apiKey: "AIzaSyDUfeARP0PATgGlG17Grqit29-U0ya5vhQ", // 例: "AIzaSyC..."
+          authDomain: "your-project-id.firebaseapp.com",
+          projectId: "your-project-id",
+          storageBucket: "your-project-id.appspot.com",
+          messagingSenderId: "your-sender-id",
+          appId: "1:your-sender-id:web:your-app-id"
         };
         // ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 
@@ -526,11 +526,6 @@
                     const db = getFirestore(app);
                     firebaseServices.current = { app, auth, db };
 
-                    getRedirectResult(auth).catch((err) => {
-                        console.error("Redirect Result Error:", err);
-                        setError(`Googleログインに失敗しました: ${err.code}`);
-                    });
-
                     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
                         setUser(currentUser);
                         setLoading(false);
@@ -591,7 +586,12 @@
             const handleGoogleLogin = () => {
                 const { auth } = firebaseServices.current;
                 const provider = new GoogleAuthProvider();
-                signInWithRedirect(auth, provider);
+                // signInWithRedirect を signInWithPopup に変更
+                signInWithPopup(auth, provider)
+                    .catch((error) => {
+                        console.error("Google Popup Signin Error", error);
+                        setError(`Googleログインに失敗しました: ${error.code}`);
+                    });
             };
 
             const handleAnonymousLogin = () => {
@@ -1058,6 +1058,7 @@
     </script>
 </body>
 </html>
+
 
 
 
