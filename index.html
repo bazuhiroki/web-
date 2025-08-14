@@ -52,15 +52,16 @@
         const { jsPDF } = window.jspdf;
 
         // ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-        // ご自身のFirebaseプロジェクトの設定情報をこちらに貼り付けてください
-        // 取得方法: https://firebase.google.com/docs/web/setup#add-sdks-initialize
+        // 【重要】ご自身のFirebaseプロジェクトの設定情報をこちらに貼り付けてください
+        // この部分が正しくないと、"redirect_uri_mismatch" エラーが発生します。
         const firebaseConfig = {
-          apiKey: "AIzaSyDUfeARP0PATgGlG17Grqit29-U0ya5vhQ", // 例: "AIzaSyC..."
-          authDomain: "your-project-id.firebaseapp.com",
-          projectId: "your-project-id",
-          storageBucket: "your-project-id.appspot.com",
-          messagingSenderId: "your-sender-id",
-          appId: "1:your-sender-id:web:your-app-id"
+            apiKey: "AIzaSyDUfeARP0PATgGlG17Grqit29-U0ya5vhQ",
+            authDomain: "shikaku-dashboard.firebaseapp.com",
+            projectId: "shikaku-dashboard",
+            storageBucket: "shikaku-dashboard.firebasestorage.app",
+            messagingSenderId: "727535626459",
+            appId: "1:727535626459:web:aaf0fd5a49df92cc9004fe",
+            measurementId: "G-C3V0X55D9X"
         };
         // ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 
@@ -113,7 +114,7 @@
             useEffect(() => {
                 if (!canvasRef.current || typeof Chart === 'undefined') return;
                 if (chartRef.current) chartRef.current.destroy();
-                const ctx = canvasRef.current.getContext('2d');
+                const ctx = currentCanvas.getContext('2d');
                 chartRef.current = new Chart(ctx, {
                     type: 'doughnut',
                     data: {
@@ -524,7 +525,7 @@
             useEffect(() => {
                 if (firebaseServices.current) return;
                 try {
-                    if (firebaseConfig.apiKey.startsWith("AIzaSy...")) {
+                    if (!firebaseConfig.apiKey || firebaseConfig.apiKey.startsWith("AIzaSy...")) {
                         throw new Error("Firebaseの設定が不完全です。コード内の`firebaseConfig`オブジェクトにご自身のプロジェクト情報を設定してください。");
                     }
                     const app = initializeApp(firebaseConfig);
@@ -1063,6 +1064,7 @@
     </script>
 </body>
 </html>
+
 
 
 
