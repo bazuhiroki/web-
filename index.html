@@ -51,13 +51,11 @@
     <!-- Reactコード -->
     <script type="text/babel" data-type="module">
         // --- モジュールのインポート ---
-        // Firebase SDKから必要な関数を直接インポートします。
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getAuth, onAuthStateChanged, signInAnonymously, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         
         const { useState, useEffect, useCallback, useMemo, useRef } = React;
-        // グローバルスコープからライブラリを取得します。
         const { uuidv4, XLSX, Chart } = window;
 
         // --- Chart.js 2Dバブルチャートコンポーネント (変更なし) ---
@@ -216,6 +214,7 @@
                             progress: storedData.progress ? JSON.parse(storedData.progress) : {}
                         });
                     } else {
+                        // ユーザーのドキュメントがなければ、空のデータで初期化
                         saveDataToFirestore({ certifications: [], progress: {} }); 
                     }
                 }, (err) => {
@@ -226,15 +225,17 @@
                 return () => unsubscribe();
             }, [user]);
             
-            const saveDataToFirestore = useCallback(async (newData) => {
+            // ★★★ 修正点 ★★★
+            // この関数は常に完全なデータオブジェクト（certificationsとprogress）を受け取るように変更
+            const saveDataToFirestore = useCallback(async (fullDataToSave) => {
                 if (!user || !firebaseServices.current) return;
                 const { db, app } = firebaseServices.current;
                 const userDocRef = doc(db, 'artifacts', app.options.appId, 'users', user.uid);
                 try {
                     await setDoc(userDocRef, {
-                        certifications: JSON.stringify(newData.certifications),
-                        progress: JSON.stringify(newData.progress),
-                    }, { merge: true });
+                        certifications: JSON.stringify(fullDataToSave.certifications || []),
+                        progress: JSON.stringify(fullDataToSave.progress || {}),
+                    }); // { merge: true } は不要なので削除
                 } catch (err) {
                     console.error("Save data error:", err);
                     openModal(`データ保存エラー: ${err.message}`);
@@ -266,7 +267,6 @@
                 await signOut(auth);
             };
 
-            // --- 既存のハンドラ (変更なし) ---
             useEffect(() => {
                 if (editingCert) { setCertForm(editingCert); } 
                 else { setCertForm({ name: '', difficulty: 3, necessity: 3, gai: 3 }); }
@@ -286,7 +286,8 @@
                 if (!certForm.name.trim()) { openModal('資格名を入力してください。'); return; }
                 const newCert = { ...certForm, id: editingCert ? editingCert.id : uuidv4(), difficulty: Number(certForm.difficulty), necessity: Number(certForm.necessity), gai: Number(certForm.gai) };
                 const updatedCerts = editingCert ? data.certifications.map(c => c.id === newCert.id ? newCert : c) : [...data.certifications, newCert];
-                await saveDataToFirestore({ ...data, certifications: updatedCerts });
+                // ★★★ 修正点 ★★★ 常に完全なデータを渡す
+                await saveDataToFirestore({ certifications: updatedCerts, progress: data.progress });
                 setEditingCert(null);
             };
             const handleDeleteCert = (id) => {
@@ -294,6 +295,7 @@
                     const updatedCerts = data.certifications.filter(c => c.id !== id);
                     const updatedProgress = { ...data.progress };
                     delete updatedProgress[id];
+                    // ★★★ 修正点 ★★★ 常に完全なデータを渡す
                     await saveDataToFirestore({ certifications: updatedCerts, progress: updatedProgress });
                     if (currentCertId === id) setCurrentCertId(null);
                     closeModal();
@@ -321,7 +323,8 @@
                             newCerts = jsonData.filter(c => c.name && !isNaN(c.difficulty) && !isNaN(c.necessity) && !isNaN(c.gai)).map(c => ({...c, id: uuidv4()}));
                         }
                         if (newCerts.length > 0) {
-                            await saveDataToFirestore({ ...data, certifications: newCerts });
+                            // ★★★ 修正点 ★★★ 常に完全なデータを渡す
+                            await saveDataToFirestore({ certifications: newCerts, progress: data.progress });
                             openModal(`${newCerts.length}件の資格情報をアップロードしました。`);
                         } else { openModal('有効なデータが見つかりませんでした。'); }
                     } catch (error) { openModal(`ファイルの読み込みに失敗しました: ${error.message}`); }
@@ -350,8 +353,13 @@
                                 }
                             }
                         });
-                        const updatedProgress = { ...data.progress, [currentCertId]: { ...(data.progress[currentCertId] || {}), items } };
-                        await saveDataToFirestore({ ...data, progress: updatedProgress });
+                        
+                        // ★★★ 修正点 ★★★
+                        // 常に現在のデータ全体をベースに更新する
+                        const updatedProgress = JSON.parse(JSON.stringify(data.progress));
+                        updatedProgress[currentCertId] = { ...(updatedProgress[currentCertId] || {}), items: items };
+
+                        await saveDataToFirestore({ certifications: data.certifications, progress: updatedProgress });
                         openModal('学習項目のアップロードが完了しました！');
                     } catch (error) { openModal(`ファイルの読み込み中にエラーが発生しました: ${error.message}`); }
                 };
@@ -363,7 +371,8 @@
                 if (certProgress?.items?.[majorId]?.subItems?.[minorId]) {
                     certProgress.items[majorId].subItems[minorId].checked = !certProgress.items[majorId].subItems[minorId].checked;
                     certProgress.items[majorId].checked = Object.values(certProgress.items[majorId].subItems).every(item => item.checked);
-                    await saveDataToFirestore({ ...data, progress: updatedProgress });
+                    // ★★★ 修正点 ★★★ 常に完全なデータを渡す
+                    await saveDataToFirestore({ certifications: data.certifications, progress: updatedProgress });
                 }
             };
             const handleAddMajorItem = async () => {
@@ -373,7 +382,8 @@
                 const newMajorKey = uuidv4();
                 currentCertProgress.items[newMajorKey] = { name: newMajorItemName.trim(), checked: false, type: 'major', subItems: {} };
                 updatedProgress[currentCertId] = currentCertProgress;
-                await saveDataToFirestore({ ...data, progress: updatedProgress });
+                // ★★★ 修正点 ★★★ 常に完全なデータを渡す
+                await saveDataToFirestore({ certifications: data.certifications, progress: updatedProgress });
                 setNewMajorItemName('');
             };
             const handleAddMinorItem = async () => {
@@ -383,7 +393,8 @@
                 if (currentCertProgress?.items?.[parentMajorItemId]) {
                     const newMinorKey = uuidv4();
                     currentCertProgress.items[parentMajorItemId].subItems[newMinorKey] = { name: newMinorItemName.trim(), checked: false, type: 'minor' };
-                    await saveDataToFirestore({ ...data, progress: updatedProgress });
+                    // ★★★ 修正点 ★★★ 常に完全なデータを渡す
+                    await saveDataToFirestore({ certifications: data.certifications, progress: updatedProgress });
                     setNewMinorItemName('');
                 }
             };
@@ -578,7 +589,8 @@
                                     <input type="date" value={data.progress[currentCertId]?.targetDate || ''} onChange={async (e) => {
                                         if (!currentCertId) return;
                                         const updatedProgress = { ...data.progress, [currentCertId]: { ...(data.progress[currentCertId] || {}), targetDate: e.target.value } };
-                                        await saveDataToFirestore({ ...data, progress: updatedProgress });
+                                        // ★★★ 修正点 ★★★ 常に完全なデータを渡す
+                                        await saveDataToFirestore({ certifications: data.certifications, progress: updatedProgress });
                                     }} className="w-full p-2 bg-gray-700 rounded-md"/>
                                 </div>
                                 <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
