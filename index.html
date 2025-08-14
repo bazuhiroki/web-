@@ -41,7 +41,7 @@
     <!-- Firebase接続設定 -->
     <script>
         const __firebase_config = JSON.stringify({
-            apiKey: "AIzaSyDUfeARP0PATgGIG17Grqit29-U0ya5vhQ", // ★★★ APIキーを設定しました ★★★
+            apiKey: "AIzaSyDUfeARP0PATgGlG17Grqit29-U0ya5vhQ", // ★★★ 正しいAPIキーに修正しました ★★★
             authDomain: "shikaku-dashboard.firebaseapp.com",
             projectId: "shikaku-dashboard",
             storageBucket: "shikaku-dashboard.appspot.com",
@@ -148,7 +148,6 @@
             );
         };
 
-        // ★★★ 修正点：ReportTabコンポーネントをAppコンポーネントの前に定義 ★★★
         const ReportTab = ({ data, currentCertId, progressPercent, daysRemaining, certName, reporter, setReporter, report, loadingReport, generateReport, saveDataToFirestore }) => {
             const [viewDate, setViewDate] = useState(new Date());
             const [selectedDate, setSelectedDate] = useState(null);
@@ -185,8 +184,6 @@
             const handlePdfExport = () => {
                 if (!report) return;
                 const doc = new jsPDF();
-                // jsPDFは標準で日本語をサポートしていないため、フォントの組み込みが必要。
-                // ここでは単純なテキスト出力にとどめます。文字化けする可能性があります。
                 const splitText = doc.splitTextToSize(report, 180);
                 doc.text(splitText, 10, 10);
                 doc.save(`${certName}_report_${new Date().toISOString().split('T')[0]}.pdf`);
