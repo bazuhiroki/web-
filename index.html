@@ -35,13 +35,12 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuidv4.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <!-- PDF出力ライブラリ -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
     <!-- Firebase接続設定 -->
     <script>
         const __firebase_config = JSON.stringify({
-            apiKey: "AIzaSyDUfeARP0PATgGlG17Grqit29-U0ya5vhQ", // ユーザー指定のAPIキーに修正
+            apiKey: "AIzaSyDUf6RP8PATGIGi7GRqit29-U8yaSvh0",
             authDomain: "shikaku-dashboard.firebaseapp.com",
             projectId: "shikaku-dashboard",
             storageBucket: "shikaku-dashboard.appspot.com",
@@ -62,7 +61,6 @@
         const { jsPDF } = window.jspdf;
 
         // --- UIコンポーネント定義 ---
-
         const BubbleChart = ({ data }) => {
             const canvasRef = useRef(null);
             const chartRef = useRef(null);
@@ -161,10 +159,10 @@
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [modalContent, setModalContent] = useState({ title: '', body: '', onConfirm: null });
             
-            // レポートタブ用のState
             const [viewDate, setViewDate] = useState(new Date());
             const [selectedDate, setSelectedDate] = useState(null);
             const [note, setNote] = useState('');
+            const [studyTime, setStudyTime] = useState('');
 
             const firebaseServices = useRef(null);
 
@@ -178,7 +176,6 @@
                     const auth = getAuth(app);
                     const db = getFirestore(app);
                     firebaseServices.current = { app, auth, db };
-
                     getRedirectResult(auth).catch((err) => { console.error("Redirect Error:", err); setError(`Googleログインに失敗: ${err.code}`); });
                     const unsubscribe = onAuthStateChanged(auth, (currentUser) => { setUser(currentUser); setLoading(false); });
                     return () => unsubscribe();
@@ -361,12 +358,12 @@
             };
 
             // --- レポートタブ関連の計算 ---
-            const { progressPercent, daysRemaining, certName, totalTasks, completedTasks } = useMemo(() => {
-                if (!currentCertId || !data.progress[currentCertId]) return { progressPercent: 0, daysRemaining: null, certName: '', totalTasks: 0, completedTasks: 0 };
+            const { progressPercent, daysRemaining, certName, totalTasks, completedTasks, totalStudyTime } = useMemo(() => {
+                if (!currentCertId) return { progressPercent: 0, daysRemaining: null, certName: '', totalTasks: 0, completedTasks: 0, totalStudyTime: 0 };
                 const progressData = data.progress[currentCertId];
                 const certName = data.certifications.find(c => c.id === currentCertId)?.name || '';
                 let total = 0, completed = 0;
-                if (progressData.items) {
+                if (progressData && progressData.items) {
                     Object.values(progressData.items).forEach(major => {
                         const subItems = major.subItems || {};
                         total += Object.keys(subItems).length;
@@ -375,13 +372,21 @@
                 }
                 const percent = total > 0 ? (completed / total) * 100 : 0;
                 let remaining = null;
-                if (progressData.targetDate) {
+                if (progressData && progressData.targetDate) {
                     const target = new Date(progressData.targetDate);
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
                     remaining = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
                 }
-                return { progressPercent: percent, daysRemaining: remaining, certName, totalTasks: total, completedTasks: completed };
+                let cumulativeTime = 0;
+                if (data.calendar) {
+                    Object.values(data.calendar).forEach(dayData => {
+                        if (dayData.studyLog && dayData.studyLog[currentCertId]) {
+                            cumulativeTime += Number(dayData.studyLog[currentCertId]);
+                        }
+                    });
+                }
+                return { progressPercent: percent, daysRemaining: remaining, certName, totalTasks: total, completedTasks: completed, totalStudyTime: cumulativeTime };
             }, [currentCertId, data]);
 
             // --- AIレポート生成 ---
@@ -389,11 +394,11 @@
                 setLoadingReport(true); setReport('');
                 try {
                     if (!currentCertId) throw new Error('レポートを生成する資格を選択してください。');
-                    const prompt = `あなたは「${reporter}」です。以下の学習状況を分析し、そのキャラクターになりきって学習者を力強く励ます評価と、具体的で実行可能な次のアクションを提案してください。レポートは情熱的かつ分かりやすく、markdown形式で記述してください。\n\n### 学習状況\n- **資格名**: ${certName}\n- **目標取得日までの残り日数**: ${daysRemaining !== null ? `${daysRemaining}日` : '未設定'}\n- **総学習項目数**: ${totalTasks}\n- **完了項目数**: ${completedTasks}\n- **進捗率**: ${progressPercent.toFixed(1)}%`;
+                    const prompt = `あなたは「${reporter}」です。以下の学習状況を分析し、そのキャラクターになりきって学習者を力強く励ます評価と、具体的で実行可能な次のアクションを提案してください。レポートは情熱的かつ分かりやすく、markdown形式で記述してください。\n\n### 学習状況\n- **資格名**: ${certName}\n- **目標取得日までの残り日数**: ${daysRemaining !== null ? `${daysRemaining}日` : '未設定'}\n- **累計学習時間**: ${Math.floor(totalStudyTime / 60)}時間 ${totalStudyTime % 60}分\n- **総学習項目数**: ${totalTasks}\n- **完了項目数**: ${completedTasks}\n- **進捗率**: ${progressPercent.toFixed(1)}%`;
                     const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
-                    const apiKey = "YOUR_API_KEY_HERE"; // ★★★ ご自身のGemini APIキーに置き換えてください ★★★
+                    const apiKey = "YOUR_GEMINI_API_KEY_HERE";
                     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-                    if (apiKey === "YOUR_API_KEY_HERE") throw new Error("Gemini APIキーが設定されていません。");
+                    if (apiKey === "YOUR_GEMINI_API_KEY_HERE") throw new Error("Gemini APIキーが設定されていません。");
                     const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                     if (!response.ok) throw new Error(`APIエラー: ${response.status} ${response.statusText}`);
                     const result = await response.json();
@@ -408,17 +413,31 @@
             useEffect(() => {
                 if (selectedDate) {
                     const dateKey = selectedDate.toISOString().split('T')[0];
-                    setNote(data.calendar?.[dateKey]?.note || '');
-                } else { setNote(''); }
-            }, [selectedDate, data.calendar]);
-            const handleSaveNote = async () => {
+                    const dayData = data.calendar?.[dateKey];
+                    setNote(dayData?.note || '');
+                    setStudyTime(dayData?.studyLog?.[currentCertId] || '');
+                } else { 
+                    setNote('');
+                    setStudyTime('');
+                }
+            }, [selectedDate, data.calendar, currentCertId]);
+
+            const handleSaveCalendarEntry = async () => {
                 if (!selectedDate) return;
+                if (!currentCertId) {
+                    openModal('エラー', '記録を保存するには、「進捗管理」タブで学習中の資格を選択してください。');
+                    return;
+                }
                 const dateKey = selectedDate.toISOString().split('T')[0];
                 const updatedCalendar = JSON.parse(JSON.stringify(data.calendar || {}));
                 if (!updatedCalendar[dateKey]) updatedCalendar[dateKey] = {};
+                if (!updatedCalendar[dateKey].studyLog) updatedCalendar[dateKey].studyLog = {};
                 updatedCalendar[dateKey].note = note;
+                updatedCalendar[dateKey].studyLog[currentCertId] = Number(studyTime) || 0;
                 await saveDataToFirestore({ ...data, calendar: updatedCalendar });
+                openModal('成功', `${dateKey} の記録を保存しました。`);
             };
+            
             const handleSaveReportToCalendar = async () => {
                 if (!selectedDate || !report) return;
                 const dateKey = selectedDate.toISOString().split('T')[0];
@@ -428,6 +447,7 @@
                 await saveDataToFirestore({ ...data, calendar: updatedCalendar });
                 openModal('成功', `${dateKey} にレポートを保存しました。`);
             };
+
             const handlePdfExport = () => {
                 if (!report) return;
                 const doc = new jsPDF();
@@ -435,6 +455,7 @@
                 doc.text(splitText, 10, 10);
                 doc.save(`${certName}_report_${new Date().toISOString().split('T')[0]}.pdf`);
             };
+
             const calendarDays = useMemo(() => {
                 const year = viewDate.getFullYear();
                 const month = viewDate.getMonth();
@@ -499,25 +520,151 @@
                     </nav>
                     <main>
                         {currentTab === 'tab-1' && <div className="flex flex-col lg:flex-row p-4 gap-4">
-                            {/* ... Tab 1 JSX ... */}
+                            <div className="w-full lg:w-1/3 space-y-4">
+                                <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                                    <h3 className="text-xl font-bold mb-2">1. 資格情報アップロード</h3>
+                                    <p className="text-sm text-gray-400 mb-2">Excel(.xlsx)またはJSON(.json)形式。<br/>Excel: A列=資格名, B=難易度, C=必要性, D=やりがい (2行目から)</p>
+                                    <input type="file" accept=".json,.xlsx,.xls" onChange={handleCertFileUpload} className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100 cursor-pointer"/>
+                                </div>
+                                <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                                    <h3 className="text-xl font-bold mb-4">2. フィルター</h3>
+                                    {['difficulty', 'necessity', 'gai'].map(key => {
+                                        const labels = {difficulty: '難易度', necessity: '必要性', gai: 'やりがい'};
+                                        return (
+                                        <div key={key} className="mb-2">
+                                            <label className="block text-sm font-medium mb-1">{labels[key]} ({filters[key].min} - {filters[key].max})</label>
+                                            <div className="flex items-center space-x-2">
+                                                <span>1</span>
+                                                <input type="range" min="1" max="5" value={filters[key].min} onChange={e => handleFilterChange(key, 'min', e.target.value)} className="w-full" />
+                                                <input type="range" min="1" max="5" value={filters[key].max} onChange={e => handleFilterChange(key, 'max', e.target.value)} className="w-full" />
+                                                <span>5</span>
+                                            </div>
+                                        </div>
+                                    )})}
+                                </div>
+                                <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                                    <h3 className="text-xl font-bold mb-4">{editingCert ? '資格情報の編集' : '3. 資格情報の手動追加'}</h3>
+                                    <div className="space-y-4">
+                                        <input type="text" name="name" value={certForm.name} onChange={handleFormChange} placeholder="資格名" className="w-full p-2 bg-gray-700 rounded-md"/>
+                                        {['difficulty', 'necessity', 'gai'].map(key => (
+                                        <div key={key}>
+                                            <label className="block text-sm font-medium mb-1">{({difficulty: '難易度', necessity: '必要性', gai: 'やりがい'})[key]} (1-5)</label>
+                                            <input type="number" name={key} value={certForm[key]} onChange={handleFormChange} min="1" max="5" className="w-full p-2 bg-gray-700 rounded-md"/>
+                                        </div>
+                                        ))}
+                                        <button onClick={handleAddUpdateCert} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">{editingCert ? '更新' : '追加'}</button>
+                                        {editingCert && <button onClick={() => setEditingCert(null)} className="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg mt-2">キャンセル</button>}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="w-full lg:w-2/3 space-y-4">
+                                <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                                    <div className="w-full h-[60vh] min-h-[400px]">
+                                        <BubbleChart data={filteredCerts} />
+                                    </div>
+                                </div>
+                                <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                                    <h3 className="text-xl font-bold mb-4">資格一覧</h3>
+                                    <div className="overflow-auto max-h-[40vh]">
+                                        <table className="min-w-full divide-y divide-gray-700">
+                                            <thead className="bg-gray-700 sticky top-0"><tr>{['資格名', '難易度', '必要性', 'やりがい', 'アクション'].map(h => <th key={h} className="px-4 py-2 text-left text-xs font-medium text-gray-300 uppercase">{h}</th>)}</tr></thead>
+                                            <tbody className="bg-gray-800 divide-y divide-gray-700">
+                                                {filteredCerts.length > 0 ? filteredCerts.map(cert => (
+                                                    <tr key={cert.id} className="hover:bg-gray-700/50">
+                                                        <td className="px-4 py-2 text-sm font-medium text-white">{cert.name}</td>
+                                                        <td className="px-4 py-2 text-sm text-gray-300">{cert.difficulty}</td>
+                                                        <td className="px-4 py-2 text-sm text-gray-300">{cert.necessity}</td>
+                                                        <td className="px-4 py-2 text-sm text-gray-300">{cert.gai}</td>
+                                                        <td className="px-4 py-2 text-sm font-medium space-x-2">
+                                                            <button onClick={() => setEditingCert(cert)} className="text-indigo-400 hover:text-indigo-600">編集</button>
+                                                            <button onClick={() => handleDeleteCert(cert.id)} className="text-red-400 hover:text-red-600">削除</button>
+                                                        </td>
+                                                    </tr>
+                                                )) : (<tr><td colSpan="5" className="text-center py-4 text-gray-500">該当する資格がありません。</td></tr>)}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
                         </div>}
                         {currentTab === 'tab-2' && <div className="flex flex-col lg:flex-row p-4 gap-4">
-                            {/* ... Tab 2 JSX ... */}
+                            <div className="w-full lg:w-1/3 space-y-4">
+                                <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                                    <h3 className="text-xl font-bold mb-4">学習中の資格設定</h3>
+                                    <select value={currentCertId || ''} onChange={(e) => setCurrentCertId(e.target.value)} className="w-full p-2 bg-gray-700 rounded-md mb-4">
+                                        <option value="">資格を選択...</option>
+                                        {data.certifications.map((cert) => <option key={cert.id} value={cert.id}>{cert.name}</option>)}
+                                    </select>
+                                    <label className="block text-sm font-medium mb-1">目標取得日</label>
+                                    <input type="date" value={data.progress[currentCertId]?.targetDate || ''} onChange={async (e) => {
+                                        if (!currentCertId) return;
+                                        const updatedProgress = { ...data.progress, [currentCertId]: { ...(data.progress[currentCertId] || {}), targetDate: e.target.value } };
+                                        await saveDataToFirestore({ ...data, progress: updatedProgress });
+                                    }} className="w-full p-2 bg-gray-700 rounded-md"/>
+                                </div>
+                                <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                                    <h3 className="text-xl font-bold mb-4">学習項目アップロード/追加</h3>
+                                    <p className="text-sm text-gray-400 mb-2">Excelファイルをアップロード (●:大項目, ・:小項目)</p>
+                                    <input type="file" accept=".xlsx" onChange={handleProgressFileUpload} className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100 cursor-pointer"/>
+                                    <div className="mt-4 border-t border-gray-700 pt-4 space-y-2">
+                                        <h4 className="text-lg font-bold mb-2">手動で追加</h4>
+                                        <input type="text" value={newMajorItemName} onChange={(e) => setNewMajorItemName(e.target.value)} placeholder="大項目名" className="w-full p-2 bg-gray-700 rounded-md"/>
+                                        <button onClick={handleAddMajorItem} disabled={!currentCertId} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">大項目を追加</button>
+                                        <select value={parentMajorItemId} onChange={(e) => setParentMajorItemId(e.target.value)} className="w-full p-2 bg-gray-700 rounded-md mt-4">
+                                            <option value="">親となる大項目を選択...</option>
+                                            {Object.entries(data.progress[currentCertId]?.items || {}).map(([key, item]) => <option key={key} value={key}>{item.name}</option>)}
+                                        </select>
+                                        <input type="text" value={newMinorItemName} onChange={(e) => setNewMinorItemName(e.target.value)} placeholder="小項目名" className="w-full p-2 bg-gray-700 rounded-md"/>
+                                        <button onClick={handleAddMinorItem} disabled={!parentMajorItemId} className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">小項目を追加</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="w-full lg:w-2/3 space-y-4">
+                                <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                                    <h3 className="text-xl font-bold mb-4">{data.certifications.find(c => c.id === currentCertId)?.name || '資格を選択してください'}</h3>
+                                    <div className="w-full bg-gray-700 rounded-full h-4 mb-4">
+                                        <div className="bg-green-500 h-4 rounded-full text-xs flex items-center justify-center text-white font-bold" style={{ width: `${progressPercent}%` }}>
+                                            {progressPercent.toFixed(1)}%
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2">
+                                        {Object.entries(data.progress[currentCertId]?.items || {}).map(([majorKey, majorItem]) => (
+                                            <div key={majorKey} className="p-2 rounded bg-gray-700/50">
+                                                <h5 className="font-bold mb-1">{majorItem.name}</h5>
+                                                <div className="pl-4 space-y-1">
+                                                    {Object.entries(majorItem.subItems || {}).map(([minorKey, minorItem]) => (
+                                                        <label key={minorKey} className="flex items-center space-x-2 cursor-pointer">
+                                                            <input type="checkbox" checked={minorItem.checked} onChange={() => handleProgressCheckbox(minorKey, majorKey)} className="form-checkbox h-4 w-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500" />
+                                                            <span className={`text-gray-300 ${minorItem.checked ? 'line-through text-gray-500' : ''}`}>{minorItem.name}</span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
                         </div>}
                         {currentTab === 'tab-3' && (
                             <div className="p-4 space-y-6">
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                                     <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col items-center justify-center">
-                                        <div className="text-6xl font-bold text-indigo-400">
+                                        <div className="text-4xl md:text-6xl font-bold text-indigo-400">
                                             {daysRemaining !== null ? (daysRemaining >= 0 ? daysRemaining : '期限切れ') : '-'}
                                         </div>
-                                        <div className="text-lg text-gray-400 mt-2">目標日までの日数</div>
+                                        <div className="text-md md:text-lg text-gray-400 mt-2">目標日までの日数</div>
                                     </div>
-                                    <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col items-center justify-center col-span-1">
-                                         <div className="w-40 h-40">
+                                    <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col items-center justify-center">
+                                        <div className="text-4xl md:text-6xl font-bold text-green-400">
+                                            {totalStudyTime > 0 ? `${Math.floor(totalStudyTime / 60)}h ${totalStudyTime % 60}m` : '-'}
+                                        </div>
+                                        <div className="text-md md:text-lg text-gray-400 mt-2">累計学習時間</div>
+                                    </div>
+                                    <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col items-center justify-center">
+                                         <div className="w-32 h-32 md:w-40 md:h-40">
                                             <ProgressDoughnutChart progressPercent={currentCertId ? progressPercent : 0} />
                                          </div>
-                                         <div className="text-lg text-gray-400 mt-4">{certName || '資格未選択'}</div>
+                                         <div className="text-md md:text-lg text-gray-400 mt-4">{certName || '資格未選択'}</div>
                                     </div>
                                     <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col justify-center">
                                         <h3 className="text-xl font-bold mb-4">AIレポーター設定</h3>
@@ -570,14 +717,32 @@
                                          <h3 className="text-xl font-bold mb-4">
                                             {selectedDate ? `${selectedDate.toLocaleDateString('ja-JP')} の記録` : '日付を選択してください'}
                                         </h3>
-                                        <textarea
-                                            value={note}
-                                            onChange={(e) => setNote(e.target.value)}
-                                            placeholder="その日の学習内容やメモを記録..."
-                                            disabled={!selectedDate}
-                                            className="w-full h-40 p-2 bg-gray-700 rounded-md mb-4 disabled:opacity-50"
-                                        ></textarea>
-                                        <button onClick={handleSaveNote} disabled={!selectedDate} className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">メモを保存</button>
+                                        <div className="space-y-4">
+                                            <div>
+                                                <label className="text-sm text-gray-400 mb-1 block">学習時間（分）</label>
+                                                <input
+                                                    type="number"
+                                                    value={studyTime}
+                                                    onChange={(e) => setStudyTime(e.target.value)}
+                                                    placeholder="例: 60"
+                                                    disabled={!selectedDate || !currentCertId}
+                                                    className="w-full p-2 bg-gray-700 rounded-md disabled:opacity-50"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-sm text-gray-400 mb-1 block">メモ</label>
+                                                <textarea
+                                                    value={note}
+                                                    onChange={(e) => setNote(e.target.value)}
+                                                    placeholder="その日の学習内容や気づきを記録..."
+                                                    disabled={!selectedDate}
+                                                    className="w-full h-28 p-2 bg-gray-700 rounded-md disabled:opacity-50"
+                                                ></textarea>
+                                            </div>
+                                        </div>
+                                        <button onClick={handleSaveCalendarEntry} disabled={!selectedDate || !currentCertId} className="w-full mt-4 bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">
+                                            {currentCertId ? 'この日の記録を保存' : '先に資格を選択'}
+                                        </button>
                                         {selectedDate && data.calendar?.[selectedDate.toISOString().split('T')[0]]?.report && (
                                             <div className="mt-4">
                                                 <h4 className="font-bold text-lg mb-2">保存されたレポート</h4>
@@ -598,6 +763,7 @@
     </script>
 </body>
 </html>
+
 
 
 
