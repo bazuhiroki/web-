@@ -112,7 +112,8 @@
             const canvasRef = useRef(null);
             const chartRef = useRef(null);
             useEffect(() => {
-                if (!canvasRef.current || typeof Chart === 'undefined') return;
+                const currentCanvas = canvasRef.current; // ★★★ この行を修正 ★★★
+                if (!currentCanvas || typeof Chart === 'undefined') return;
                 if (chartRef.current) chartRef.current.destroy();
                 const ctx = currentCanvas.getContext('2d');
                 chartRef.current = new Chart(ctx, {
@@ -1064,6 +1065,7 @@
     </script>
 </body>
 </html>
+
 
 
 
