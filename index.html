@@ -7,167 +7,466 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@600;700;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Noto Sans JP', 'Inter', sans-serif; }
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #1f2937; }
-        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
-        canvas { display: block; }
-        .day-selected { background-color: #4f46e5 !important; color: white !important; }
+        :root {
+            --bg: #0C1024;
+            --bg-2: #11162e;
+            --surface: rgba(255, 255, 255, 0.045);
+            --surface-2: rgba(255, 255, 255, 0.08);
+            --line: rgba(255, 255, 255, 0.09);
+            --ink: #EDEFF8;
+            --muted: #8b93b8;
+            --shu: #E85B3F;          /* 朱 */
+            --shu-deep: #C43F27;
+            --kin: #E5B84B;          /* 金 */
+            --seiji: #55C6B5;        /* 青磁 */
+            --indigo: #6C7BFF;
+        }
+        html, body { background: var(--bg); color: var(--ink); }
+        body {
+            font-family: 'Zen Kaku Gothic New', sans-serif;
+            background:
+                radial-gradient(1100px 600px at 85% -10%, rgba(108,123,255,0.13), transparent 60%),
+                radial-gradient(900px 500px at -10% 100%, rgba(232,91,63,0.08), transparent 55%),
+                var(--bg);
+            background-attachment: fixed;
+        }
+        .font-display { font-family: 'Shippori Mincho', serif; letter-spacing: 0.04em; }
+        .font-mono-data { font-family: 'IBM Plex Mono', monospace; }
 
-        /* モーダルのアニメーション */
-        @keyframes fade-in-scale {
-            from { transform: scale(0.95); opacity: 0; }
-            to { transform: scale(1); opacity: 1; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.24); }
+
+        .glass {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
         }
-        .animate-fade-in-scale {
-            animation: fade-in-scale 0.3s ease-out forwards;
+        .glass-inset {
+            background: rgba(0,0,0,0.25);
+            border: 1px solid var(--line);
+            border-radius: 12px;
         }
-        .accordion-content {
-            transition: max-height 0.3s ease-out, padding 0.3s ease-out;
-            max-height: 0;
-            overflow: hidden;
+
+        .field {
+            width: 100%;
+            background: rgba(0,0,0,0.28);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 0.55rem 0.8rem;
+            color: var(--ink);
+            outline: none;
+            transition: border-color .2s, box-shadow .2s;
         }
-        .accordion-content.open {
-            max-height: 1000px; /* 十分な高さを設定 */
+        .field:focus { border-color: var(--shu); box-shadow: 0 0 0 3px rgba(232,91,63,0.18); }
+        .field::placeholder { color: #5b628a; }
+        .field:disabled { opacity: .45; cursor: not-allowed; }
+        select.field option { background: var(--bg-2); }
+        input[type="date"].field::-webkit-calendar-picker-indicator { filter: invert(0.8); }
+
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+            font-weight: 700; border-radius: 12px; padding: .6rem 1.1rem;
+            transition: transform .15s ease, box-shadow .2s ease, background .2s ease, opacity .2s;
+            border: 1px solid transparent; cursor: pointer;
+        }
+        .btn:active { transform: translateY(1px) scale(0.99); }
+        .btn:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+        .btn-shu {
+            background: linear-gradient(135deg, var(--shu), var(--shu-deep));
+            color: #fff; box-shadow: 0 6px 20px -6px rgba(232,91,63,0.55);
+        }
+        .btn-shu:hover:not(:disabled) { box-shadow: 0 8px 26px -6px rgba(232,91,63,0.75); }
+        .btn-ghost { background: var(--surface-2); color: var(--ink); border-color: var(--line); }
+        .btn-ghost:hover:not(:disabled) { background: rgba(255,255,255,0.13); }
+        .btn-seiji { background: linear-gradient(135deg, #4FBFAE, #2E8F81); color: #fff; box-shadow: 0 6px 20px -6px rgba(85,198,181,0.45); }
+        .btn-indigo { background: linear-gradient(135deg, #6C7BFF, #4A57D8); color: #fff; box-shadow: 0 6px 20px -6px rgba(108,123,255,0.5); }
+        .btn-kin { background: linear-gradient(135deg, #E5B84B, #C1932E); color: #221a05; }
+
+        .eyebrow {
+            font-size: .68rem; letter-spacing: .22em; text-transform: uppercase;
+            color: var(--muted); font-weight: 700;
+        }
+
+        .tab-btn {
+            position: relative; padding: .7rem 1.15rem; border-radius: 999px;
+            font-weight: 700; color: var(--muted); transition: color .2s, background .2s;
+            font-size: .92rem; white-space: nowrap;
+        }
+        .tab-btn:hover { color: var(--ink); }
+        .tab-btn.active { color: #fff; background: linear-gradient(135deg, var(--shu), var(--shu-deep)); box-shadow: 0 6px 18px -6px rgba(232,91,63,0.6); }
+
+        .file-input::file-selector-button {
+            margin-right: 1rem; padding: .5rem 1rem; border-radius: 999px; border: 1px solid var(--line);
+            background: var(--surface-2); color: var(--ink); font-weight: 700; font-size: .8rem; cursor: pointer;
+            transition: background .2s;
+        }
+        .file-input::file-selector-button:hover { background: rgba(255,255,255,0.14); }
+
+        input[type=range] { -webkit-appearance: none; appearance: none; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.15); outline: none; }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%;
+            background: var(--kin); border: 2px solid var(--bg); box-shadow: 0 0 0 2px rgba(229,184,75,0.4); cursor: pointer;
+        }
+        input[type=range]::-moz-range-thumb {
+            width: 16px; height: 16px; border-radius: 50%;
+            background: var(--kin); border: 2px solid var(--bg); box-shadow: 0 0 0 2px rgba(229,184,75,0.4); cursor: pointer;
+        }
+
+        .day-cell { transition: background .15s, color .15s, box-shadow .15s; }
+        .day-selected {
+            background: linear-gradient(135deg, var(--shu), var(--shu-deep)) !important;
+            color: white !important; box-shadow: 0 4px 14px -4px rgba(232,91,63,0.7);
+        }
+
+        @keyframes fade-in-scale { from { transform: scale(0.96) translateY(6px); opacity: 0; } to { transform: scale(1) translateY(0); opacity: 1; } }
+        .animate-fade-in-scale { animation: fade-in-scale 0.28s cubic-bezier(.2,.9,.3,1.2) forwards; }
+        @keyframes fade-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .fade-up { animation: fade-up .45s ease both; }
+        @media (prefers-reduced-motion: reduce) {
+            .animate-fade-in-scale, .fade-up { animation: none; }
+            * { transition-duration: 0.01ms !important; }
+        }
+
+        .accordion-content { transition: max-height 0.3s ease-out; max-height: 0; overflow: hidden; }
+        .accordion-content.open { max-height: 1200px; }
+
+        canvas { display: block; }
+        .g3d-tooltip {
+            position: absolute; pointer-events: none; z-index: 20;
+            background: rgba(10, 13, 30, 0.92); border: 1px solid var(--line); border-radius: 10px;
+            padding: .5rem .75rem; font-size: .8rem; line-height: 1.5;
+            transform: translate(-50%, calc(-100% - 14px));
+            box-shadow: 0 10px 30px -10px rgba(0,0,0,0.8);
+            white-space: nowrap; opacity: 0; transition: opacity .12s;
+        }
+        .g3d-tooltip.show { opacity: 1; }
+
+        .stamp {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 2.1rem; height: 2.1rem; border-radius: 8px;
+            border: 2px solid var(--shu); color: var(--shu);
+            font-family: 'Shippori Mincho', serif; font-weight: 800; font-size: 1rem;
+            transform: rotate(-6deg);
         }
     </style>
 </head>
-<body class="bg-gray-900 text-gray-100">
-    <div id="root" class="h-screen"></div>
+<body>
+    <div id="root" class="min-h-screen"></div>
 
     <!-- ライブラリ -->
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuidv4.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
-
-    <!-- Reactコード -->
-    <script type="text/babel" data-type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { getAuth, onAuthStateChanged, signInAnonymously, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        
+    <script type="text/babel">
         const { useState, useEffect, useCallback, useMemo, useRef } = React;
         const { uuidv4, XLSX, Chart } = window;
         const { jsPDF } = window.jspdf;
 
-        // ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-        // 【重要】ご自身のFirebaseプロジェクトの設定情報をこちらに貼り付けてください
-        const firebaseConfig = {
-            apiKey: "AIzaSyDUfeARP0PATgGlG17Grqit29-U0ya5vhQ",
-            authDomain: "shikaku-dashboard.firebaseapp.com",
-            projectId: "shikaku-dashboard",
-            storageBucket: "shikaku-dashboard.firebasestorage.app",
-            messagingSenderId: "727535626459",
-            appId: "1:727535626459:web:aaf0fd5a49df92cc9004fe",
-            measurementId: "G-C3V0X55D9X"
-        };
-        // ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+        const STORAGE_KEY = 'shikaku-dashboard-v2';
 
         // --- Hooks ---
         const useMediaQuery = (query) => {
-            const [matches, setMatches] = useState(false);
+            const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
             useEffect(() => {
                 const media = window.matchMedia(query);
-                if (media.matches !== matches) {
-                    setMatches(media.matches);
-                }
                 const listener = () => setMatches(media.matches);
-                window.addEventListener('resize', listener);
-                return () => window.removeEventListener('resize', listener);
-            }, [matches, query]);
+                media.addEventListener('change', listener);
+                return () => media.removeEventListener('change', listener);
+            }, [query]);
             return matches;
         };
 
-        // --- UIコンポーネント ---
-        const Accordion = ({ title, children }) => {
-            const [isOpen, setIsOpen] = useState(false);
+        // ============================================================
+        //  3D 立体バブルチャート (Three.js)
+        //  X=難易度 / Y=必要性 / Z=やりがい, 球の大きさ=やりがい
+        // ============================================================
+        const Bubble3DChart = ({ data }) => {
+            const mountRef = useRef(null);
+            const tooltipRef = useRef(null);
+            const stateRef = useRef(null);
+
+            // 初期化(1回のみ)
+            useEffect(() => {
+                const mount = mountRef.current;
+                if (!mount || typeof THREE === 'undefined') return;
+
+                const scene = new THREE.Scene();
+                const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
+                camera.position.set(0, 5, 16);
+
+                const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                mount.appendChild(renderer.domElement);
+
+                // ライティング
+                scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+                const key = new THREE.DirectionalLight(0xffffff, 0.9);
+                key.position.set(6, 10, 8);
+                scene.add(key);
+                const rim = new THREE.PointLight(0x6c7bff, 0.9, 60);
+                rim.position.set(-8, -4, -6);
+                scene.add(rim);
+                const warm = new THREE.PointLight(0xe85b3f, 0.5, 60);
+                warm.position.set(8, -6, 6);
+                scene.add(warm);
+
+                // 全体を回すグループ
+                const pivot = new THREE.Group();
+                scene.add(pivot);
+
+                const AXIS = 4.5; // 半径 (値1〜5 を -AXIS/2 〜 +AXIS/2 に写像はせず、中心3を原点に)
+                const map = v => (v - 3) * (AXIS / 3); // 1→-3, 3→0, 5→+3
+
+                // --- 枠(ワイヤーキューブ)とグリッド ---
+                const half = map(5) + 0.6;
+                const boxGeo = new THREE.BoxGeometry(half * 2, half * 2, half * 2);
+                const edges = new THREE.EdgesGeometry(boxGeo);
+                const frame = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x3a4270, transparent: true, opacity: 0.55 }));
+                pivot.add(frame);
+
+                const grid = new THREE.GridHelper(half * 2, 8, 0x2a3157, 0x1e2444);
+                grid.position.y = -half;
+                pivot.add(grid);
+
+                // --- 軸ラベル(スプライト) ---
+                const makeLabel = (text, color = '#aeb6df', size = 44) => {
+                    const cv = document.createElement('canvas');
+                    cv.width = 512; cv.height = 128;
+                    const ctx = cv.getContext('2d');
+                    ctx.font = `700 ${size}px 'Zen Kaku Gothic New', sans-serif`;
+                    ctx.fillStyle = color;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(text, 256, 64);
+                    const tex = new THREE.CanvasTexture(cv);
+                    tex.minFilter = THREE.LinearFilter;
+                    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+                    sp.scale.set(4, 1, 1);
+                    return sp;
+                };
+                const lx = makeLabel('難易度 →', '#e5b84b'); lx.position.set(0, -half - 0.7, half + 0.6); pivot.add(lx);
+                const ly = makeLabel('必要性 ↑', '#55c6b5'); ly.position.set(-half - 1.4, 0, half + 0.6); pivot.add(ly);
+                const lz = makeLabel('やりがい →', '#e85b3f'); lz.position.set(-half - 1.4, -half - 0.7, 0); lz.material.rotation = 0; pivot.add(lz);
+
+                // 目盛り数字
+                for (let v = 1; v <= 5; v += 2) {
+                    const t = makeLabel(String(v), '#5b628a', 52);
+                    t.scale.set(1.4, 0.35, 1);
+                    t.position.set(map(v), -half - 0.25, half + 0.4);
+                    pivot.add(t);
+                }
+
+                const bubbleGroup = new THREE.Group();
+                pivot.add(bubbleGroup);
+
+                const raycaster = new THREE.Raycaster();
+                const pointer = new THREE.Vector2(-10, -10);
+
+                const st = {
+                    scene, camera, renderer, pivot, bubbleGroup, raycaster, pointer, map,
+                    autoRotate: true, targetRotY: 0, isDragging: false, lastX: 0, lastY: 0,
+                    rotX: 0.25, rotY: 0.6, dist: 16, hovered: null, disposed: false, spheres: []
+                };
+                stateRef.current = st;
+
+                // --- 操作: ドラッグ回転 / ホイールズーム ---
+                const el = renderer.domElement;
+                el.style.touchAction = 'none';
+                el.style.cursor = 'grab';
+
+                const onDown = (e) => {
+                    st.isDragging = true; st.autoRotate = false;
+                    st.lastX = e.clientX; st.lastY = e.clientY;
+                    el.style.cursor = 'grabbing';
+                    el.setPointerCapture(e.pointerId);
+                };
+                const onMove = (e) => {
+                    const rect = el.getBoundingClientRect();
+                    st.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+                    st.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+                    st.clientX = e.clientX - rect.left;
+                    st.clientY = e.clientY - rect.top;
+                    if (st.isDragging) {
+                        st.rotY += (e.clientX - st.lastX) * 0.006;
+                        st.rotX += (e.clientY - st.lastY) * 0.004;
+                        st.rotX = Math.max(-1.2, Math.min(1.2, st.rotX));
+                        st.lastX = e.clientX; st.lastY = e.clientY;
+                    }
+                };
+                const onUp = () => {
+                    st.isDragging = false;
+                    el.style.cursor = 'grab';
+                    setTimeout(() => { if (!st.isDragging) st.autoRotate = true; }, 2500);
+                };
+                const onWheel = (e) => {
+                    e.preventDefault();
+                    st.dist = Math.max(8, Math.min(30, st.dist + e.deltaY * 0.015));
+                };
+                const onLeave = () => { st.pointer.set(-10, -10); };
+
+                el.addEventListener('pointerdown', onDown);
+                el.addEventListener('pointermove', onMove);
+                el.addEventListener('pointerup', onUp);
+                el.addEventListener('pointerleave', onLeave);
+                el.addEventListener('wheel', onWheel, { passive: false });
+
+                // --- リサイズ ---
+                const resize = () => {
+                    const w = mount.clientWidth, h = mount.clientHeight;
+                    if (!w || !h) return;
+                    camera.aspect = w / h;
+                    camera.updateProjectionMatrix();
+                    renderer.setSize(w, h);
+                };
+                resize();
+                const ro = new ResizeObserver(resize);
+                ro.observe(mount);
+
+                // --- レンダーループ ---
+                const clock = new THREE.Clock();
+                const animate = () => {
+                    if (st.disposed) return;
+                    requestAnimationFrame(animate);
+                    const dt = clock.getDelta();
+                    const t = clock.getElapsedTime();
+
+                    if (st.autoRotate) st.rotY += dt * 0.18;
+                    pivot.rotation.y += (st.rotY - pivot.rotation.y) * 0.08;
+                    pivot.rotation.x += (st.rotX - pivot.rotation.x) * 0.08;
+
+                    camera.position.set(0, st.dist * 0.28, st.dist);
+                    camera.lookAt(0, 0, 0);
+
+                    // 浮遊アニメーション
+                    st.spheres.forEach((m, i) => {
+                        m.position.y = m.userData.baseY + Math.sin(t * 1.2 + i * 1.7) * 0.07;
+                        const s = m.userData.baseScale * (st.hovered === m ? 1.25 : 1);
+                        m.scale.x += (s - m.scale.x) * 0.15;
+                        m.scale.y = m.scale.z = m.scale.x;
+                    });
+
+                    // ホバー判定
+                    raycaster.setFromCamera(st.pointer, camera);
+                    const hits = raycaster.intersectObjects(st.spheres);
+                    const tip = tooltipRef.current;
+                    if (hits.length > 0) {
+                        st.hovered = hits[0].object;
+                        const d = st.hovered.userData;
+                        if (tip) {
+                            tip.innerHTML = `<div class="font-bold text-sm mb-0.5">${d.name}</div>` +
+                                `<span style="color:#e5b84b">難易度 ${d.difficulty}</span> ・ ` +
+                                `<span style="color:#55c6b5">必要性 ${d.necessity}</span> ・ ` +
+                                `<span style="color:#e85b3f">やりがい ${d.gai}</span>`;
+                            tip.style.left = st.clientX + 'px';
+                            tip.style.top = st.clientY + 'px';
+                            tip.classList.add('show');
+                        }
+                        el.style.cursor = 'pointer';
+                    } else {
+                        st.hovered = null;
+                        if (tip) tip.classList.remove('show');
+                        if (!st.isDragging) el.style.cursor = 'grab';
+                    }
+
+                    renderer.render(scene, camera);
+                };
+                animate();
+
+                return () => {
+                    st.disposed = true;
+                    ro.disconnect();
+                    el.removeEventListener('pointerdown', onDown);
+                    el.removeEventListener('pointermove', onMove);
+                    el.removeEventListener('pointerup', onUp);
+                    el.removeEventListener('pointerleave', onLeave);
+                    el.removeEventListener('wheel', onWheel);
+                    renderer.dispose();
+                    if (renderer.domElement.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement);
+                };
+            }, []);
+
+            // データ更新時に球を作り直す
+            useEffect(() => {
+                const st = stateRef.current;
+                if (!st) return;
+                // 既存を破棄
+                st.spheres.forEach(m => { m.geometry.dispose(); m.material.dispose(); st.bubbleGroup.remove(m); });
+                st.spheres = [];
+
+                const geo = new THREE.SphereGeometry(1, 32, 32);
+                data.forEach(cert => {
+                    // やりがいで色相を変化 (青磁 → 金 → 朱)
+                    const hue = 0.52 - ((cert.gai - 1) / 4) * 0.47; // 0.52(teal) → 0.05(red)
+                    const color = new THREE.Color().setHSL(hue, 0.72, 0.58);
+                    const mat = new THREE.MeshStandardMaterial({
+                        color, roughness: 0.25, metalness: 0.35,
+                        emissive: color.clone().multiplyScalar(0.25),
+                        transparent: true, opacity: 0.92
+                    });
+                    const mesh = new THREE.Mesh(geo.clone(), mat);
+                    const baseScale = 0.22 + cert.gai * 0.09;
+                    mesh.position.set(st.map(cert.difficulty), st.map(cert.necessity), st.map(cert.gai));
+                    mesh.userData = {
+                        name: cert.name, difficulty: cert.difficulty, necessity: cert.necessity,
+                        gai: cert.gai, baseY: st.map(cert.necessity), baseScale
+                    };
+                    mesh.scale.setScalar(baseScale);
+                    st.bubbleGroup.add(mesh);
+                    st.spheres.push(mesh);
+                });
+            }, [data]);
+
             return (
-                <div className="bg-gray-800 rounded-lg shadow-lg">
-                    <button
-                        onClick={() => setIsOpen(!isOpen)}
-                        className="w-full flex justify-between items-center p-4 text-left"
-                    >
-                        <h3 className="text-xl font-bold">{title}</h3>
-                        <span className={`transform transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}>▼</span>
-                    </button>
-                    <div className={`accordion-content ${isOpen ? 'open p-4 border-t border-gray-700' : ''}`}>
-                        {children}
+                <div className="relative w-full h-full" ref={mountRef}>
+                    <div ref={tooltipRef} className="g3d-tooltip"></div>
+                    {(!data || data.length === 0) && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4 z-10">
+                            <div className="text-4xl mb-3 opacity-40">◍</div>
+                            <p className="text-sm" style={{color: 'var(--muted)'}}>表示するデータがありません。<br/>資格情報を追加またはアップロードしてください。</p>
+                        </div>
+                    )}
+                    <div className="absolute bottom-3 right-4 text-[11px] font-mono-data pointer-events-none" style={{color: 'var(--muted)'}}>
+                        ドラッグ: 回転 / ホイール: ズーム / ホバー: 詳細
                     </div>
                 </div>
             );
         };
-        
-        const BubbleChart = ({ data }) => {
-            const canvasRef = useRef(null);
-            const chartRef = useRef(null);
-            useEffect(() => {
-                const currentCanvas = canvasRef.current;
-                if (!currentCanvas || typeof Chart === 'undefined') return;
-                if (chartRef.current) chartRef.current.destroy();
-                const ctx = currentCanvas.getContext('2d');
-                const chartData = {
-                    datasets: [{
-                        label: '資格',
-                        data: data.map(cert => ({ x: cert.difficulty, y: cert.necessity, r: cert.gai * 4, name: cert.name })),
-                        backgroundColor: data.map(cert => `hsla(${180 + cert.gai * 20}, 80%, 60%, 0.7)`),
-                        borderColor: data.map(cert => `hsla(${180 + cert.gai * 20}, 80%, 40%, 1)`),
-                        borderWidth: 1,
-                    }]
-                };
-                const options = {
-                    responsive: true, maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: {
-                            backgroundColor: '#1f2937', titleColor: '#e5e7eb', bodyColor: '#d1d5db',
-                            callbacks: { label: (c) => `${c.raw.name} | 難易度: ${c.raw.x}, 必要性: ${c.raw.y}, やりがい: ${c.raw.r / 4}` }
-                        }
-                    },
-                    scales: {
-                        x: { title: { display: true, text: '難易度', color: '#9ca3af' }, grid: { color: '#374151' }, ticks: { color: '#9ca3af', stepSize: 1 }, min: 0, max: 6 },
-                        y: { title: { display: true, text: '必要性', color: '#9ca3af' }, grid: { color: '#374151' }, ticks: { color: '#9ca3af', stepSize: 1 }, min: 0, max: 6 }
-                    }
-                };
-                chartRef.current = new Chart(ctx, { type: 'bubble', data: chartData, options: options });
-            }, [data]);
-            return (
-                <div className="relative w-full h-full">
-                    <canvas ref={canvasRef}></canvas>
-                    {(!data || data.length === 0) && <div className="absolute inset-0 flex items-center justify-center text-gray-500 bg-gray-800/50 rounded-lg p-4 text-center">表示するデータがありません。<br/>資格情報を追加またはアップロードしてください。</div>}
-                </div>
-            );
-        };
 
+        // --- 進捗ドーナツ ---
         const ProgressDoughnutChart = ({ progressPercent }) => {
             const canvasRef = useRef(null);
             const chartRef = useRef(null);
             useEffect(() => {
-                const currentCanvas = canvasRef.current;
-                if (!currentCanvas || typeof Chart === 'undefined') return;
+                const cv = canvasRef.current;
+                if (!cv || typeof Chart === 'undefined') return;
                 if (chartRef.current) chartRef.current.destroy();
-                const ctx = currentCanvas.getContext('2d');
+                const ctx = cv.getContext('2d');
+                const grad = ctx.createLinearGradient(0, 0, 140, 140);
+                grad.addColorStop(0, '#E85B3F');
+                grad.addColorStop(1, '#E5B84B');
                 chartRef.current = new Chart(ctx, {
                     type: 'doughnut',
-                    data: {
-                        datasets: [{
-                            data: [progressPercent, 100 - progressPercent],
-                            backgroundColor: ['#22c55e', '#374151'],
-                            borderColor: '#1f2937',
-                            borderWidth: 4,
-                            hoverOffset: 4
-                        }]
-                    },
+                    data: { datasets: [{
+                        data: [progressPercent, 100 - progressPercent],
+                        backgroundColor: [grad, 'rgba(255,255,255,0.07)'],
+                        borderColor: 'transparent', borderWidth: 0,
+                        borderRadius: progressPercent > 0 && progressPercent < 100 ? 10 : 0,
+                    }]},
                     options: {
-                        responsive: true, maintainAspectRatio: false, cutout: '70%',
+                        responsive: true, maintainAspectRatio: false, cutout: '76%',
                         plugins: { legend: { display: false }, tooltip: { enabled: false } }
                     }
                 });
@@ -176,74 +475,89 @@
                 <div className="relative w-full h-full flex items-center justify-center">
                     <canvas ref={canvasRef}></canvas>
                     <div className="absolute flex flex-col items-center justify-center">
-                        <span className="text-2xl md:text-4xl font-bold text-white">{progressPercent.toFixed(1)}%</span>
-                        <span className="text-xs md:text-sm text-gray-400">進捗率</span>
+                        <span className="text-2xl md:text-3xl font-bold font-mono-data">{progressPercent.toFixed(1)}<span className="text-sm">%</span></span>
+                        <span className="text-[11px]" style={{color: 'var(--muted)'}}>進捗率</span>
                     </div>
                 </div>
             );
         };
 
+        // --- アコーディオン (モバイル用) ---
+        const Accordion = ({ title, children, defaultOpen = false }) => {
+            const [isOpen, setIsOpen] = useState(defaultOpen);
+            return (
+                <div className="glass overflow-hidden">
+                    <button onClick={() => setIsOpen(!isOpen)} className="w-full flex justify-between items-center p-4 text-left">
+                        <h3 className="font-bold">{title}</h3>
+                        <span className={`text-xs transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} style={{color: 'var(--muted)'}}>▼</span>
+                    </button>
+                    <div className={`accordion-content ${isOpen ? 'open' : ''}`}>
+                        <div className="p-4 pt-0">{children}</div>
+                    </div>
+                </div>
+            );
+        };
+
+        const SectionCard = ({ eyebrow, title, children, className = '' }) => (
+            <div className={`glass p-5 ${className}`}>
+                {eyebrow && <div className="eyebrow mb-1">{eyebrow}</div>}
+                {title && <h3 className="font-display text-lg font-bold mb-4">{title}</h3>}
+                {children}
+            </div>
+        );
+
+        // ============================================================
+        //  AIレポート モーダル
+        // ============================================================
         const AIReportModal = ({
             isOpen, onClose, reporter, setReporter, generateReport, generateComprehensiveReport,
-            loadingReport, report, handlePdfExport, handleSaveReportToCalendar, selectedDate,
-            currentCertId
+            loadingReport, report, handlePdfExport, handleSaveReportToCalendar, selectedDate, currentCertId
         }) => {
             if (!isOpen) return null;
-
             return (
-                <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-                    <div className="bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-sm md:max-w-3xl animate-fade-in-scale">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-xl md:text-2xl font-bold text-white">AIレポート</h3>
-                            <button onClick={onClose} className="text-gray-400 hover:text-white text-3xl leading-none">&times;</button>
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="glass p-6 w-full max-w-sm md:max-w-3xl animate-fade-in-scale" style={{background: 'rgba(17,22,46,0.92)'}}>
+                        <div className="flex justify-between items-center mb-5">
+                            <div>
+                                <div className="eyebrow">AI Report</div>
+                                <h3 className="font-display text-xl md:text-2xl font-bold">AIレポート</h3>
+                            </div>
+                            <button onClick={onClose} className="text-3xl leading-none hover:opacity-70 transition-opacity" style={{color: 'var(--muted)'}}>&times;</button>
                         </div>
 
                         <div className="flex flex-col md:flex-row gap-6">
                             <div className="w-full md:w-1/3 space-y-4 flex flex-col">
                                 <div>
-                                    <h4 className="text-lg font-bold mb-2">AIレポーター設定</h4>
-                                    <input
-                                        type="text"
-                                        value={reporter}
-                                        onChange={(e) => setReporter(e.target.value)}
-                                        placeholder="例：熱血コーチ"
-                                        className="w-full p-2 bg-gray-700 rounded-md"
-                                    />
+                                    <label className="text-sm font-bold mb-2 block">AIレポーター設定</label>
+                                    <input type="text" value={reporter} onChange={(e) => setReporter(e.target.value)}
+                                        placeholder="例:熱血コーチ" className="field" />
                                 </div>
                                 <div className="space-y-2 mt-auto">
-                                    <button
-                                        onClick={generateReport}
-                                        className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-500 disabled:cursor-not-allowed"
-                                        disabled={loadingReport || !currentCertId}
-                                    >
+                                    <button onClick={generateReport} className="btn btn-seiji w-full" disabled={loadingReport || !currentCertId}>
                                         {loadingReport ? '生成中...' : '個別レポートを生成'}
                                     </button>
-                                    <button
-                                        onClick={generateComprehensiveReport}
-                                        className="w-full bg-sky-600 hover:bg-sky-700 text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-500 disabled:cursor-not-allowed"
-                                        disabled={loadingReport}
-                                    >
+                                    <button onClick={generateComprehensiveReport} className="btn btn-indigo w-full" disabled={loadingReport}>
                                         {loadingReport ? '生成中...' : '総合レポートを生成'}
                                     </button>
-                                    {!currentCertId && <p className="text-xs text-yellow-400 text-center pt-1">個別レポートには「進捗管理」タブでの資格選択が必要です。</p>}
+                                    {!currentCertId && <p className="text-xs text-center pt-1" style={{color: 'var(--kin)'}}>個別レポートには「進捗管理」タブでの資格選択が必要です。</p>}
                                 </div>
                             </div>
 
-                            <div className="w-full md:w-2/3 bg-gray-900 p-4 rounded-lg h-80 md:h-96 overflow-y-auto">
+                            <div className="w-full md:w-2/3 glass-inset p-4 h-80 md:h-96 overflow-y-auto">
                                 {loadingReport ? (
-                                    <div className="flex items-center justify-center h-full text-gray-400">レポートを生成中...</div>
+                                    <div className="flex items-center justify-center h-full" style={{color: 'var(--muted)'}}>レポートを生成中...</div>
                                 ) : report ? (
-                                    <div id="report-content" className="prose prose-invert max-w-none whitespace-pre-wrap leading-relaxed" dangerouslySetInnerHTML={{ __html: report.replace(/\n/g, '<br />') }}></div>
+                                    <div id="report-content" className="whitespace-pre-wrap leading-relaxed text-sm" dangerouslySetInnerHTML={{ __html: report.replace(/\n/g, '<br />') }}></div>
                                 ) : (
-                                    <div className="flex items-center justify-center h-full text-gray-500">ここにレポートが表示されます。</div>
+                                    <div className="flex items-center justify-center h-full text-sm" style={{color: 'var(--muted)'}}>ここにレポートが表示されます。</div>
                                 )}
                             </div>
                         </div>
 
                         {report && !loadingReport && (
-                            <div className="flex flex-col sm:flex-row justify-end gap-4 mt-6 border-t border-gray-700 pt-4">
-                                <button onClick={handlePdfExport} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">PDF出力</button>
-                                <button onClick={handleSaveReportToCalendar} disabled={!selectedDate} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">選択中の日付に保存</button>
+                            <div className="flex flex-col sm:flex-row justify-end gap-3 mt-6 pt-4" style={{borderTop: '1px solid var(--line)'}}>
+                                <button onClick={handlePdfExport} className="btn btn-ghost">PDF出力</button>
+                                <button onClick={handleSaveReportToCalendar} disabled={!selectedDate} className="btn btn-shu">選択中の日付に保存</button>
                             </div>
                         )}
                     </div>
@@ -251,93 +565,122 @@
             );
         };
 
-
+        // ============================================================
+        //  タブ1: 優先順位
+        // ============================================================
         const PrioritizationTab = ({ data, filters, handleFilterChange, certForm, handleFormChange, handleAddUpdateCert, editingCert, setEditingCert, handleCertFileUpload, handleDeleteCert }) => {
             const isDesktop = useMediaQuery('(min-width: 1024px)');
             const filteredCerts = useMemo(() => {
-                return data.certifications.filter(cert => 
+                return data.certifications.filter(cert =>
                     cert.difficulty >= filters.difficulty.min && cert.difficulty <= filters.difficulty.max &&
                     cert.necessity >= filters.necessity.min && cert.necessity <= filters.necessity.max &&
                     cert.gai >= filters.gai.min && cert.gai <= filters.gai.max
                 );
             }, [data.certifications, filters]);
 
-            const LeftColumnContent = () => (
-                <div className="space-y-4">
-                    <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                        <h3 className="text-xl font-bold mb-2">1. 資格情報アップロード</h3>
-                        <p className="text-sm text-gray-400 mb-2">Excel(.xlsx)またはJSON(.json)形式。<br/>Excel: A列=資格名, B=難易度, C=必要性, D=やりがい (2行目から)</p>
-                        <input type="file" accept=".json,.xlsx,.xls" onChange={handleCertFileUpload} className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100 cursor-pointer"/>
-                    </div>
-                    <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                        <h3 className="text-xl font-bold mb-4">2. フィルター</h3>
-                        {['difficulty', 'necessity', 'gai'].map(key => {
-                            const labels = {difficulty: '難易度', necessity: '必要性', gai: 'やりがい'};
-                            return (
-                            <div key={key} className="mb-2">
-                                <label className="block text-sm font-medium mb-1">{labels[key]} ({filters[key].min} - {filters[key].max})</label>
-                                <div className="flex items-center space-x-2">
-                                    <span>1</span>
-                                    <input type="range" min="1" max="5" value={filters[key].min} onChange={e => handleFilterChange(key, 'min', e.target.value)} className="w-full" />
-                                    <input type="range" min="1" max="5" value={filters[key].max} onChange={e => handleFilterChange(key, 'max', e.target.value)} className="w-full" />
-                                    <span>5</span>
-                                </div>
+            const labels = { difficulty: '難易度', necessity: '必要性', gai: 'やりがい' };
+
+            const uploadSection = (
+                <div>
+                    <p className="text-xs mb-3 leading-relaxed" style={{color: 'var(--muted)'}}>Excel(.xlsx)またはJSON(.json)形式。<br/>Excel: A列=資格名, B=難易度, C=必要性, D=やりがい (2行目から)</p>
+                    <input type="file" accept=".json,.xlsx,.xls" onChange={handleCertFileUpload} className="file-input block w-full text-xs cursor-pointer" style={{color: 'var(--muted)'}}/>
+                </div>
+            );
+
+            const filterSection = (
+                <div className="space-y-3">
+                    {['difficulty', 'necessity', 'gai'].map(key => (
+                        <div key={key}>
+                            <div className="flex justify-between items-baseline mb-1.5">
+                                <label className="text-sm font-medium">{labels[key]}</label>
+                                <span className="font-mono-data text-xs" style={{color: 'var(--kin)'}}>{filters[key].min} – {filters[key].max}</span>
                             </div>
-                        )})}
-                    </div>
-                    <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                        <h3 className="text-xl font-bold mb-4">{editingCert ? '資格情報の編集' : '3. 資格情報の手動追加'}</h3>
-                        <div className="space-y-4">
-                            <input type="text" name="name" value={certForm.name} onChange={handleFormChange} placeholder="資格名" className="w-full p-2 bg-gray-700 rounded-md"/>
-                            {['difficulty', 'necessity', 'gai'].map(key => (
-                            <div key={key}>
-                                <label className="block text-sm font-medium mb-1">{({difficulty: '難易度', necessity: '必要性', gai: 'やりがい'})[key]} (1-5)</label>
-                                <input type="number" name={key} value={certForm[key]} onChange={handleFormChange} min="1" max="5" className="w-full p-2 bg-gray-700 rounded-md"/>
+                            <div className="flex items-center gap-2 text-xs" style={{color: 'var(--muted)'}}>
+                                <span>1</span>
+                                <input type="range" min="1" max="5" value={filters[key].min} onChange={e => handleFilterChange(key, 'min', e.target.value)} className="w-full" />
+                                <input type="range" min="1" max="5" value={filters[key].max} onChange={e => handleFilterChange(key, 'max', e.target.value)} className="w-full" />
+                                <span>5</span>
                             </div>
-                            ))}
-                            <button onClick={handleAddUpdateCert} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">{editingCert ? '更新' : '追加'}</button>
-                            {editingCert && <button onClick={() => setEditingCert(null)} className="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg mt-2">キャンセル</button>}
                         </div>
+                    ))}
+                </div>
+            );
+
+            const formSection = (
+                <div className="space-y-3">
+                    <input type="text" name="name" value={certForm.name} onChange={handleFormChange} placeholder="資格名" className="field"/>
+                    <div className="grid grid-cols-3 gap-2">
+                        {['difficulty', 'necessity', 'gai'].map(key => (
+                            <div key={key}>
+                                <label className="block text-xs font-medium mb-1" style={{color: 'var(--muted)'}}>{labels[key]}</label>
+                                <input type="number" name={key} value={certForm[key]} onChange={handleFormChange} min="1" max="5" className="field"/>
+                            </div>
+                        ))}
                     </div>
+                    <button onClick={handleAddUpdateCert} className="btn btn-shu w-full">{editingCert ? '更新する' : '追加する'}</button>
+                    {editingCert && <button onClick={() => setEditingCert(null)} className="btn btn-ghost w-full">キャンセル</button>}
+                </div>
+            );
+
+            const leftColumn = isDesktop ? (
+                <div className="space-y-4">
+                    <SectionCard eyebrow="Upload" title="資格情報アップロード">{uploadSection}</SectionCard>
+                    <SectionCard eyebrow="Filter" title="フィルター">{filterSection}</SectionCard>
+                    <SectionCard eyebrow={editingCert ? 'Edit' : 'Add'} title={editingCert ? '資格情報の編集' : '資格情報の手動追加'}>{formSection}</SectionCard>
+                </div>
+            ) : (
+                <div className="space-y-3">
+                    <Accordion title="資格情報アップロード">{uploadSection}</Accordion>
+                    <Accordion title="フィルター">{filterSection}</Accordion>
+                    <Accordion title={editingCert ? '資格情報の編集' : '資格情報の手動追加'} defaultOpen={!!editingCert}>{formSection}</Accordion>
                 </div>
             );
 
             return (
-                <div className="flex flex-col lg:flex-row p-2 md:p-4 gap-4">
-                    <div className="w-full lg:w-1/3">
-                        {isDesktop ? <LeftColumnContent /> : (
-                            <div className="space-y-4">
-                                <Accordion title="1. 資格情報アップロード"><LeftColumnContent /></Accordion>
-                                <Accordion title="2. フィルター"><LeftColumnContent /></Accordion>
-                                <Accordion title="3. 資格情報の手動追加"><LeftColumnContent /></Accordion>
+                <div className="flex flex-col lg:flex-row gap-4 fade-up">
+                    <div className="w-full lg:w-[340px] lg:flex-shrink-0">{leftColumn}</div>
+                    <div className="w-full lg:flex-1 space-y-4">
+                        <div className="glass p-4 md:p-5">
+                            <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
+                                <div>
+                                    <div className="eyebrow">3D Matrix</div>
+                                    <h3 className="font-display text-lg font-bold">立体優先度マップ</h3>
+                                </div>
+                                <div className="flex gap-3 text-[11px]" style={{color: 'var(--muted)'}}>
+                                    <span><span style={{color:'#e5b84b'}}>●</span> X: 難易度</span>
+                                    <span><span style={{color:'#55c6b5'}}>●</span> Y: 必要性</span>
+                                    <span><span style={{color:'#e85b3f'}}>●</span> Z: やりがい</span>
+                                </div>
                             </div>
-                        )}
-                    </div>
-                    
-                    <div className="w-full lg:w-2/3 space-y-4">
-                        <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                            <div className="w-full h-[40vh] md:h-[50vh] lg:h-[60vh] min-h-[300px]">
-                                <BubbleChart data={filteredCerts} />
+                            <div className="w-full h-[45vh] md:h-[52vh] lg:h-[58vh] min-h-[320px] glass-inset overflow-hidden relative">
+                                <Bubble3DChart data={filteredCerts} />
                             </div>
                         </div>
-                        <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                            <h3 className="text-xl font-bold mb-4">資格一覧</h3>
-                            <div className="overflow-auto max-h-[40vh]">
-                                <table className="min-w-full divide-y divide-gray-700">
-                                    <thead className="bg-gray-700 sticky top-0"><tr>{['資格名', '難易度', '必要性', 'やりがい', 'アクション'].map(h => <th key={h} className="px-2 md:px-4 py-2 text-left text-xs font-medium text-gray-300 uppercase">{h}</th>)}</tr></thead>
-                                    <tbody className="bg-gray-800 divide-y divide-gray-700">
+                        <div className="glass p-4 md:p-5">
+                            <div className="flex items-baseline justify-between mb-3">
+                                <h3 className="font-display text-lg font-bold">資格一覧</h3>
+                                <span className="font-mono-data text-xs" style={{color: 'var(--muted)'}}>{filteredCerts.length} 件</span>
+                            </div>
+                            <div className="overflow-auto max-h-[40vh] glass-inset">
+                                <table className="min-w-full text-sm">
+                                    <thead className="sticky top-0" style={{background: 'var(--bg-2)'}}>
+                                        <tr>{['資格名', '難易度', '必要性', 'やりがい', ''].map((h, i) => (
+                                            <th key={i} className="px-3 md:px-4 py-2.5 text-left text-[11px] font-bold tracking-wider" style={{color: 'var(--muted)'}}>{h}</th>
+                                        ))}</tr>
+                                    </thead>
+                                    <tbody>
                                         {filteredCerts.length > 0 ? filteredCerts.map(cert => (
-                                            <tr key={cert.id} className="hover:bg-gray-700/50">
-                                                <td className="px-2 md:px-4 py-2 text-sm font-medium text-white">{cert.name}</td>
-                                                <td className="px-2 md:px-4 py-2 text-sm text-gray-300">{cert.difficulty}</td>
-                                                <td className="px-2 md:px-4 py-2 text-sm text-gray-300">{cert.necessity}</td>
-                                                <td className="px-2 md:px-4 py-2 text-sm text-gray-300">{cert.gai}</td>
-                                                <td className="px-2 md:px-4 py-2 text-sm font-medium space-x-2">
-                                                    <button onClick={() => setEditingCert(cert)} className="text-indigo-400 hover:text-indigo-600">編集</button>
-                                                    <button onClick={() => handleDeleteCert(cert.id)} className="text-red-400 hover:text-red-600">削除</button>
+                                            <tr key={cert.id} className="transition-colors hover:bg-white/5" style={{borderTop: '1px solid var(--line)'}}>
+                                                <td className="px-3 md:px-4 py-2.5 font-medium">{cert.name}</td>
+                                                <td className="px-3 md:px-4 py-2.5 font-mono-data" style={{color: 'var(--kin)'}}>{cert.difficulty}</td>
+                                                <td className="px-3 md:px-4 py-2.5 font-mono-data" style={{color: 'var(--seiji)'}}>{cert.necessity}</td>
+                                                <td className="px-3 md:px-4 py-2.5 font-mono-data" style={{color: 'var(--shu)'}}>{cert.gai}</td>
+                                                <td className="px-3 md:px-4 py-2.5 whitespace-nowrap space-x-3 text-xs font-bold">
+                                                    <button onClick={() => setEditingCert(cert)} className="hover:underline" style={{color: 'var(--indigo)'}}>編集</button>
+                                                    <button onClick={() => handleDeleteCert(cert.id)} className="hover:underline" style={{color: 'var(--shu)'}}>削除</button>
                                                 </td>
                                             </tr>
-                                        )) : (<tr><td colSpan="5" className="text-center py-4 text-gray-500">該当する資格がありません。</td></tr>)}
+                                        )) : (<tr><td colSpan="5" className="text-center py-6" style={{color: 'var(--muted)'}}>該当する資格がありません。</td></tr>)}
                                     </tbody>
                                 </table>
                             </div>
@@ -347,76 +690,102 @@
             );
         };
 
-        const ProgressTab = ({ data, currentCertId, setCurrentCertId, saveDataToFirestore, handleProgressFileUpload, newMajorItemName, setNewMajorItemName, handleAddMajorItem, parentMajorItemId, setParentMajorItemId, newMinorItemName, setNewMinorItemName, handleAddMinorItem, handleProgressCheckbox, progressPercent, openModal }) => {
+        // ============================================================
+        //  タブ2: 進捗管理
+        // ============================================================
+        const ProgressTab = ({ data, currentCertId, setCurrentCertId, saveData, handleProgressFileUpload, newMajorItemName, setNewMajorItemName, handleAddMajorItem, parentMajorItemId, setParentMajorItemId, newMinorItemName, setNewMinorItemName, handleAddMinorItem, handleProgressCheckbox, progressPercent }) => {
             const isDesktop = useMediaQuery('(min-width: 1024px)');
 
-            const LeftColumnContent = () => (
-                 <div className="space-y-4">
-                    <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                        <h3 className="text-xl font-bold mb-4">学習中の資格設定</h3>
-                        <select value={currentCertId || ''} onChange={(e) => setCurrentCertId(e.target.value)} className="w-full p-2 bg-gray-700 rounded-md mb-4">
-                            <option value="">資格を選択...</option>
-                            {data.certifications.map((cert) => <option key={cert.id} value={cert.id}>{cert.name}</option>)}
-                        </select>
-                        <label className="block text-sm font-medium mb-1">目標取得日</label>
-                        <input type="date" value={data.progress[currentCertId]?.targetDate || ''} onChange={async (e) => {
+            const certSection = (
+                <div className="space-y-3">
+                    <select value={currentCertId || ''} onChange={(e) => setCurrentCertId(e.target.value)} className="field">
+                        <option value="">資格を選択...</option>
+                        {data.certifications.map((cert) => <option key={cert.id} value={cert.id}>{cert.name}</option>)}
+                    </select>
+                    <div>
+                        <label className="block text-xs font-medium mb-1" style={{color: 'var(--muted)'}}>目標取得日</label>
+                        <input type="date" value={data.progress[currentCertId]?.targetDate || ''} onChange={(e) => {
                             if (!currentCertId) return;
                             const updatedProgress = { ...data.progress, [currentCertId]: { ...(data.progress[currentCertId] || {}), targetDate: e.target.value } };
-                            await saveDataToFirestore({ ...data, progress: updatedProgress });
-                        }} className="w-full p-2 bg-gray-700 rounded-md"/>
-                    </div>
-                    <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                        <h3 className="text-xl font-bold mb-4">学習項目アップロード/追加</h3>
-                        <p className="text-sm text-gray-400 mb-2">Excelファイルをアップロード (●:大項目, ・:小項目)</p>
-                        <input type="file" accept=".xlsx" onChange={handleProgressFileUpload} className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100 cursor-pointer"/>
-                        <div className="mt-4 border-t border-gray-700 pt-4 space-y-2">
-                            <h4 className="text-lg font-bold mb-2">手動で追加</h4>
-                            <input type="text" value={newMajorItemName} onChange={(e) => setNewMajorItemName(e.target.value)} placeholder="大項目名" className="w-full p-2 bg-gray-700 rounded-md"/>
-                            <button onClick={handleAddMajorItem} disabled={!currentCertId} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">大項目を追加</button>
-                            <select value={parentMajorItemId} onChange={(e) => setParentMajorItemId(e.target.value)} className="w-full p-2 bg-gray-700 rounded-md mt-4">
-                                <option value="">親となる大項目を選択...</option>
-                                {Object.entries(data.progress[currentCertId]?.items || {}).map(([key, item]) => <option key={key} value={key}>{item.name}</option>)}
-                            </select>
-                            <input type="text" value={newMinorItemName} onChange={(e) => setNewMinorItemName(e.target.value)} placeholder="小項目名" className="w-full p-2 bg-gray-700 rounded-md"/>
-                            <button onClick={handleAddMinorItem} disabled={!parentMajorItemId} className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">小項目を追加</button>
-                        </div>
+                            saveData({ ...data, progress: updatedProgress });
+                        }} className="field"/>
                     </div>
                 </div>
             );
 
-            return (
-                <div className="flex flex-col lg:flex-row p-2 md:p-4 gap-4">
-                    <div className="w-full lg:w-1/3">
-                        {isDesktop ? <LeftColumnContent /> : (
-                            <div className="space-y-4">
-                                <Accordion title="学習中の資格設定"><LeftColumnContent /></Accordion>
-                                <Accordion title="学習項目アップロード/追加"><LeftColumnContent /></Accordion>
-                            </div>
-                        )}
+            const itemSection = (
+                <div className="space-y-3">
+                    <p className="text-xs leading-relaxed" style={{color: 'var(--muted)'}}>Excelファイルをアップロード (●:大項目, ・:小項目)</p>
+                    <input type="file" accept=".xlsx" onChange={handleProgressFileUpload} className="file-input block w-full text-xs cursor-pointer" style={{color: 'var(--muted)'}}/>
+                    <div className="pt-3 space-y-2" style={{borderTop: '1px solid var(--line)'}}>
+                        <div className="text-sm font-bold">手動で追加</div>
+                        <input type="text" value={newMajorItemName} onChange={(e) => setNewMajorItemName(e.target.value)} placeholder="大項目名" className="field"/>
+                        <button onClick={handleAddMajorItem} disabled={!currentCertId} className="btn btn-indigo w-full">大項目を追加</button>
+                        <select value={parentMajorItemId} onChange={(e) => setParentMajorItemId(e.target.value)} className="field mt-2">
+                            <option value="">親となる大項目を選択...</option>
+                            {Object.entries(data.progress[currentCertId]?.items || {}).map(([key, item]) => <option key={key} value={key}>{item.name}</option>)}
+                        </select>
+                        <input type="text" value={newMinorItemName} onChange={(e) => setNewMinorItemName(e.target.value)} placeholder="小項目名" className="field"/>
+                        <button onClick={handleAddMinorItem} disabled={!parentMajorItemId} className="btn btn-seiji w-full">小項目を追加</button>
                     </div>
-                    
-                    <div className="w-full lg:w-2/3 space-y-4">
-                        <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                            <h3 className="text-xl font-bold mb-4">{data.certifications.find(c => c.id === currentCertId)?.name || '資格を選択してください'}</h3>
-                            <div className="w-full bg-gray-700 rounded-full h-4 mb-4">
-                                <div className="bg-green-500 h-4 rounded-full text-xs flex items-center justify-center text-white font-bold" style={{ width: `${progressPercent}%` }}>
-                                    {progressPercent > 10 && `${progressPercent.toFixed(1)}%`}
-                                </div>
+                </div>
+            );
+
+            const leftColumn = isDesktop ? (
+                <div className="space-y-4">
+                    <SectionCard eyebrow="Target" title="学習中の資格設定">{certSection}</SectionCard>
+                    <SectionCard eyebrow="Checklist" title="学習項目アップロード/追加">{itemSection}</SectionCard>
+                </div>
+            ) : (
+                <div className="space-y-3">
+                    <Accordion title="学習中の資格設定" defaultOpen={!currentCertId}>{certSection}</Accordion>
+                    <Accordion title="学習項目アップロード/追加">{itemSection}</Accordion>
+                </div>
+            );
+
+            const items = data.progress[currentCertId]?.items || {};
+
+            return (
+                <div className="flex flex-col lg:flex-row gap-4 fade-up">
+                    <div className="w-full lg:w-[340px] lg:flex-shrink-0">{leftColumn}</div>
+                    <div className="w-full lg:flex-1">
+                        <div className="glass p-4 md:p-5">
+                            <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+                                <h3 className="font-display text-lg font-bold">{data.certifications.find(c => c.id === currentCertId)?.name || '資格を選択してください'}</h3>
+                                <span className="font-mono-data text-sm font-bold" style={{color: 'var(--kin)'}}>{progressPercent.toFixed(1)}%</span>
                             </div>
-                            <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2">
-                                {Object.entries(data.progress[currentCertId]?.items || {}).map(([majorKey, majorItem]) => (
-                                    <div key={majorKey} className="p-2 rounded bg-gray-700/50">
-                                        <h5 className="font-bold mb-1">{majorItem.name}</h5>
-                                        <div className="pl-4 space-y-1">
-                                            {Object.entries(majorItem.subItems || {}).map(([minorKey, minorItem]) => (
-                                                <label key={minorKey} className="flex items-center space-x-2 cursor-pointer">
-                                                    <input type="checkbox" checked={minorItem.checked} onChange={() => handleProgressCheckbox(minorKey, majorKey)} className="form-checkbox h-4 w-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500" />
-                                                    <span className={`text-gray-300 ${minorItem.checked ? 'line-through text-gray-500' : ''}`}>{minorItem.name}</span>
-                                                </label>
-                                            ))}
+                            <div className="w-full h-2.5 rounded-full mb-5 overflow-hidden" style={{background: 'rgba(255,255,255,0.07)'}}>
+                                <div className="h-full rounded-full transition-all duration-500" style={{ width: `${progressPercent}%`, background: 'linear-gradient(90deg, var(--shu), var(--kin))' }}></div>
+                            </div>
+                            <div className="space-y-2.5 max-h-[62vh] overflow-y-auto pr-2">
+                                {Object.keys(items).length === 0 && (
+                                    <div className="text-center py-10 text-sm" style={{color: 'var(--muted)'}}>学習項目がまだありません。<br/>左のパネルから追加してください。</div>
+                                )}
+                                {Object.entries(items).map(([majorKey, majorItem]) => {
+                                    const subs = Object.values(majorItem.subItems || {});
+                                    const done = subs.filter(s => s.checked).length;
+                                    return (
+                                        <div key={majorKey} className="glass-inset p-3.5">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <h5 className="font-bold text-sm flex items-center gap-2">
+                                                    {majorItem.checked && <span className="stamp" style={{width:'1.6rem',height:'1.6rem',fontSize:'.65rem'}}>完</span>}
+                                                    {majorItem.name}
+                                                </h5>
+                                                <span className="font-mono-data text-[11px]" style={{color: 'var(--muted)'}}>{done}/{subs.length}</span>
+                                            </div>
+                                            <div className="pl-1 space-y-1.5">
+                                                {Object.entries(majorItem.subItems || {}).map(([minorKey, minorItem]) => (
+                                                    <label key={minorKey} className="flex items-center gap-2.5 cursor-pointer group">
+                                                        <input type="checkbox" checked={minorItem.checked} onChange={() => handleProgressCheckbox(minorKey, majorKey)}
+                                                            className="h-4 w-4 rounded cursor-pointer" style={{accentColor: 'var(--shu)'}} />
+                                                        <span className={`text-sm transition-colors ${minorItem.checked ? 'line-through' : 'group-hover:text-white'}`}
+                                                            style={{color: minorItem.checked ? 'var(--muted)' : undefined}}>{minorItem.name}</span>
+                                                    </label>
+                                                ))}
+                                            </div>
                                         </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         </div>
                     </div>
@@ -424,9 +793,12 @@
             );
         };
 
-        const ReportTab = ({ data, currentCertId, progressPercent, daysRemaining, certName, totalStudyTime, viewDate, setViewDate, selectedDate, setSelectedDate, note, setNote, studyTime, setStudyTime, saveDataToFirestore, openModal, setIsAiReportModalOpen }) => {
-            
-            const handleSaveCalendarEntry = async () => {
+        // ============================================================
+        //  タブ3: レポート
+        // ============================================================
+        const ReportTab = ({ data, currentCertId, progressPercent, daysRemaining, certName, totalStudyTime, viewDate, setViewDate, selectedDate, setSelectedDate, note, setNote, studyTime, setStudyTime, saveData, openModal, setIsAiReportModalOpen }) => {
+
+            const handleSaveCalendarEntry = () => {
                 if (!selectedDate) return;
                 if (!currentCertId) {
                     openModal('エラー', '記録を保存するには、「進捗管理」タブで学習中の資格を選択してください。');
@@ -438,10 +810,10 @@
                 if (!updatedCalendar[dateKey].studyLog) updatedCalendar[dateKey].studyLog = {};
                 updatedCalendar[dateKey].note = note;
                 updatedCalendar[dateKey].studyLog[currentCertId] = Number(studyTime) || 0;
-                await saveDataToFirestore({ ...data, calendar: updatedCalendar });
+                saveData({ ...data, calendar: updatedCalendar });
                 openModal('保存完了', `${dateKey} の記録を保存しました。`);
             };
-            
+
             const calendarDays = useMemo(() => {
                 const year = viewDate.getFullYear();
                 const month = viewDate.getMonth();
@@ -452,115 +824,120 @@
                 for (let i = 1; i <= daysInMonth; i++) days.push(new Date(year, month, i));
                 return days;
             }, [viewDate]);
-            
+
+            const savedReport = selectedDate && data.calendar?.[selectedDate.toISOString().split('T')[0]]?.report;
+
             return (
-                <div className="p-2 md:p-4 space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-                        <div className="bg-gray-800 p-4 md:p-6 rounded-lg shadow-lg flex flex-col items-center justify-center">
-                            <div className="text-4xl md:text-5xl font-bold text-indigo-400">
-                                {daysRemaining !== null ? (daysRemaining >= 0 ? daysRemaining : '期限切れ') : '-'}
+                <div className="space-y-5 fade-up">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="glass p-5 flex flex-col items-center justify-center">
+                            <div className="eyebrow mb-2">Countdown</div>
+                            <div className="text-4xl md:text-5xl font-bold font-mono-data" style={{color: 'var(--indigo)'}}>
+                                {daysRemaining !== null ? (daysRemaining >= 0 ? daysRemaining : '期限切れ') : '–'}
                             </div>
-                            <div className="text-sm md:text-lg text-gray-400 mt-2">目標日までの日数</div>
+                            <div className="text-xs mt-2" style={{color: 'var(--muted)'}}>目標日までの日数</div>
                         </div>
-                        <div className="bg-gray-800 p-4 md:p-6 rounded-lg shadow-lg flex flex-col items-center justify-center">
-                            <div className="text-4xl md:text-5xl font-bold text-green-400">
-                                {totalStudyTime > 0 ? `${Math.floor(totalStudyTime / 60)}h ${totalStudyTime % 60}m` : '-'}
+                        <div className="glass p-5 flex flex-col items-center justify-center">
+                            <div className="eyebrow mb-2">Study Time</div>
+                            <div className="text-4xl md:text-5xl font-bold font-mono-data" style={{color: 'var(--seiji)'}}>
+                                {totalStudyTime > 0 ? <span>{Math.floor(totalStudyTime / 60)}<span className="text-lg">h</span> {totalStudyTime % 60}<span className="text-lg">m</span></span> : '–'}
                             </div>
-                            <div className="text-sm md:text-lg text-gray-400 mt-2">累計学習時間</div>
+                            <div className="text-xs mt-2" style={{color: 'var(--muted)'}}>累計学習時間</div>
                         </div>
-                        <div className="bg-gray-800 p-4 md:p-6 rounded-lg shadow-lg flex flex-col items-center justify-center">
-                             <div className="w-24 h-24 md:w-32 md:h-32">
-                                 <ProgressDoughnutChart progressPercent={currentCertId ? progressPercent : 0} />
-                             </div>
-                             <div className="text-sm md:text-lg text-gray-400 mt-2 md:mt-4 text-center">{certName || '資格未選択'}</div>
+                        <div className="glass p-5 flex flex-col items-center justify-center">
+                            <div className="w-24 h-24 md:w-28 md:h-28">
+                                <ProgressDoughnutChart progressPercent={currentCertId ? progressPercent : 0} />
+                            </div>
+                            <div className="text-xs mt-3 text-center font-medium">{certName || '資格未選択'}</div>
                         </div>
-                        <div className="bg-gray-800 p-4 md:p-6 rounded-lg shadow-lg flex flex-col justify-center text-center">
-                            <h3 className="text-xl font-bold mb-2">AIレポート</h3>
-                            <p className="text-xs md:text-sm text-gray-400 mb-4">学習状況を分析し、パーソナライズされたレポートとアドバイスを生成します。</p>
-                            <button
-                                onClick={() => setIsAiReportModalOpen(true)}
-                                className="w-full mt-auto bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105"
-                            >
-                                AIレポートを開く
-                            </button>
+                        <div className="glass p-5 flex flex-col justify-center text-center">
+                            <div className="eyebrow mb-1">AI Report</div>
+                            <h3 className="font-display font-bold mb-2">AIレポート</h3>
+                            <p className="text-xs mb-4 leading-relaxed" style={{color: 'var(--muted)'}}>学習状況を分析し、パーソナライズされたレポートとアドバイスを生成します。</p>
+                            <button onClick={() => setIsAiReportModalOpen(true)} className="btn btn-kin w-full mt-auto">AIレポートを開く</button>
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div className="bg-gray-800 p-4 md:p-6 rounded-lg shadow-lg">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div className="glass p-5">
                             <div className="flex justify-between items-center mb-4">
-                                <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() - 1)))} className="p-2 rounded-full hover:bg-gray-700">&lt;</button>
-                                <h3 className="text-lg md:text-xl font-bold">{viewDate.getFullYear()}年 {viewDate.getMonth() + 1}月</h3>
-                                <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() + 1)))} className="p-2 rounded-full hover:bg-gray-700">&gt;</button>
+                                <button onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1))} className="w-9 h-9 rounded-full hover:bg-white/10 transition-colors">‹</button>
+                                <h3 className="font-display text-lg font-bold">{viewDate.getFullYear()}年 {viewDate.getMonth() + 1}月</h3>
+                                <button onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1))} className="w-9 h-9 rounded-full hover:bg-white/10 transition-colors">›</button>
                             </div>
-                            <div className="grid grid-cols-7 gap-1 text-center text-xs text-gray-400 mb-2">
-                                {['日', '月', '火', '水', '木', '金', '土'].map(d => <div key={d}>{d}</div>)}
+                            <div className="grid grid-cols-7 gap-1 text-center text-[11px] mb-2" style={{color: 'var(--muted)'}}>
+                                {['日', '月', '火', '水', '木', '金', '土'].map((d, i) => <div key={d} style={{color: i === 0 ? 'var(--shu)' : i === 6 ? 'var(--indigo)' : undefined}}>{d}</div>)}
                             </div>
                             <div className="grid grid-cols-7 gap-1">
-                                {calendarDays.map((day, i) => (
-                                    <button
-                                        key={i}
-                                        onClick={() => day && setSelectedDate(day)}
-                                        className={`w-full aspect-square rounded-lg flex items-center justify-center text-sm transition-colors
-                                            ${day ? 'hover:bg-gray-700' : 'cursor-default'}
-                                            ${day && selectedDate && day.toDateString() === selectedDate.toDateString() ? 'day-selected' : ''}
-                                            ${day && data.calendar?.[day.toISOString().split('T')[0]] ? 'bg-indigo-900/50' : 'bg-gray-700/30'}
-                                        `}
-                                    >
-                                        {day?.getDate()}
-                                    </button>
-                                ))}
+                                {calendarDays.map((day, i) => {
+                                    const hasEntry = day && data.calendar?.[day.toISOString().split('T')[0]];
+                                    const isSelected = day && selectedDate && day.toDateString() === selectedDate.toDateString();
+                                    const isToday = day && day.toDateString() === new Date().toDateString();
+                                    return (
+                                        <button key={i} onClick={() => day && setSelectedDate(day)}
+                                            className={`day-cell w-full aspect-square rounded-lg flex items-center justify-center text-sm relative
+                                                ${day ? 'hover:bg-white/10' : 'cursor-default'} ${isSelected ? 'day-selected' : ''}`}
+                                            style={{
+                                                background: isSelected ? undefined : hasEntry ? 'rgba(229,184,75,0.14)' : day ? 'rgba(255,255,255,0.03)' : 'transparent',
+                                                border: isToday && !isSelected ? '1px solid var(--kin)' : '1px solid transparent'
+                                            }}>
+                                            {day?.getDate()}
+                                            {hasEntry && !isSelected && <span className="absolute bottom-1 w-1 h-1 rounded-full" style={{background: 'var(--kin)'}}></span>}
+                                        </button>
+                                    );
+                                })}
                             </div>
                         </div>
-                        <div className="bg-gray-800 p-4 md:p-6 rounded-lg shadow-lg">
-                             <h3 className="text-lg md:text-xl font-bold mb-4">
-                                 {selectedDate ? `${selectedDate.toLocaleDateString('ja-JP')} の記録` : '日付を選択してください'}
-                             </h3>
-                             <div className="space-y-4">
-                                 <div>
-                                     <label className="text-sm text-gray-400 mb-1 block">学習時間（分）</label>
-                                     <input
-                                         type="number"
-                                         value={studyTime}
-                                         onChange={(e) => setStudyTime(e.target.value)}
-                                         placeholder="例: 60"
-                                         disabled={!selectedDate || !currentCertId}
-                                         className="w-full p-2 bg-gray-700 rounded-md disabled:opacity-50"
-                                     />
-                                 </div>
-                                 <div>
-                                     <label className="text-sm text-gray-400 mb-1 block">メモ</label>
-                                     <textarea
-                                         value={note}
-                                         onChange={(e) => setNote(e.target.value)}
-                                         placeholder="その日の学習内容や気づきを記録..."
-                                         disabled={!selectedDate}
-                                         className="w-full h-28 p-2 bg-gray-700 rounded-md disabled:opacity-50"
-                                     ></textarea>
-                                 </div>
-                             </div>
-                             <button onClick={handleSaveCalendarEntry} disabled={!selectedDate || !currentCertId} className="w-full mt-4 bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50">
-                                 {currentCertId ? 'この日の記録を保存' : '先に資格を選択'}
-                             </button>
-                             {selectedDate && data.calendar?.[selectedDate.toISOString().split('T')[0]]?.report && (
-                                 <div className="mt-4">
-                                     <h4 className="font-bold text-lg mb-2">保存されたレポート</h4>
-                                     <div className="p-3 bg-gray-700/50 rounded-lg text-sm whitespace-pre-wrap max-h-32 overflow-y-auto">{data.calendar[selectedDate.toISOString().split('T')[0]].report}</div>
-                                 </div>
-                             )}
+                        <div className="glass p-5">
+                            <h3 className="font-display text-lg font-bold mb-4">
+                                {selectedDate ? `${selectedDate.toLocaleDateString('ja-JP')} の記録` : '日付を選択してください'}
+                            </h3>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="text-xs mb-1.5 block font-medium" style={{color: 'var(--muted)'}}>学習時間(分)</label>
+                                    <input type="number" value={studyTime} onChange={(e) => setStudyTime(e.target.value)}
+                                        placeholder="例: 60" disabled={!selectedDate || !currentCertId} className="field" />
+                                </div>
+                                <div>
+                                    <label className="text-xs mb-1.5 block font-medium" style={{color: 'var(--muted)'}}>メモ</label>
+                                    <textarea value={note} onChange={(e) => setNote(e.target.value)}
+                                        placeholder="その日の学習内容や気づきを記録..." disabled={!selectedDate} className="field h-28 resize-none"></textarea>
+                                </div>
+                            </div>
+                            <button onClick={handleSaveCalendarEntry} disabled={!selectedDate || !currentCertId} className="btn btn-shu w-full mt-4">
+                                {currentCertId ? 'この日の記録を保存' : '先に資格を選択'}
+                            </button>
+                            {savedReport && (
+                                <div className="mt-4">
+                                    <h4 className="font-bold text-sm mb-2">保存されたレポート</h4>
+                                    <div className="glass-inset p-3 text-xs whitespace-pre-wrap max-h-32 overflow-y-auto leading-relaxed">{savedReport}</div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
             );
         };
 
-        // --- メインアプリケーションコンポーネント ---
+        // ============================================================
+        //  メインアプリケーション (ログイン不要 / localStorage 自動保存)
+        // ============================================================
         const App = () => {
-            const [user, setUser] = useState(null);
-            const [loading, setLoading] = useState(true);
-            const [error, setError] = useState(null);
-            
-            const [data, setData] = useState({ certifications: [], progress: {}, calendar: {} });
+            const [data, setData] = useState(() => {
+                try {
+                    const saved = localStorage.getItem(STORAGE_KEY);
+                    if (saved) {
+                        const d = JSON.parse(saved);
+                        return {
+                            certifications: d.certifications || [],
+                            progress: d.progress || {},
+                            calendar: d.calendar || {}
+                        };
+                    }
+                } catch (e) { console.error('データ読み込みエラー:', e); }
+                return { certifications: [], progress: {}, calendar: {} };
+            });
+
             const [currentTab, setCurrentTab] = useState('tab-1');
             const [editingCert, setEditingCert] = useState(null);
             const [currentCertId, setCurrentCertId] = useState(null);
@@ -575,105 +952,26 @@
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [modalContent, setModalContent] = useState({ title: '', body: '', onConfirm: null });
             const [isAiReportModalOpen, setIsAiReportModalOpen] = useState(false);
-            
             const [viewDate, setViewDate] = useState(new Date());
             const [selectedDate, setSelectedDate] = useState(null);
             const [note, setNote] = useState('');
             const [studyTime, setStudyTime] = useState('');
 
-            const firebaseServices = useRef(null);
-
-            // --- Firebase初期化 & 認証監視 ---
-            useEffect(() => {
-                if (firebaseServices.current) return;
+            // --- データ保存 (localStorage) ---
+            const saveData = useCallback((fullDataToSave) => {
+                const next = {
+                    certifications: fullDataToSave.certifications || [],
+                    progress: fullDataToSave.progress || {},
+                    calendar: fullDataToSave.calendar || {}
+                };
+                setData(next);
                 try {
-                    if (!firebaseConfig.apiKey || firebaseConfig.apiKey.startsWith("AIzaSy...")) {
-                        throw new Error("Firebaseの設定が不完全です。コード内の`firebaseConfig`オブジェクトにご自身のプロジェクト情報を設定してください。");
-                    }
-                    const app = initializeApp(firebaseConfig);
-                    const auth = getAuth(app);
-                    const db = getFirestore(app);
-                    firebaseServices.current = { app, auth, db };
-
-                    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-                        setUser(currentUser);
-                        setLoading(false);
-                    });
-                    return () => unsubscribe();
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
                 } catch (err) {
-                    console.error("Firebase Init Error:", err);
-                    setError(err.message);
-                    setLoading(false);
+                    console.error('保存エラー:', err);
+                    openModal('データ保存エラー', `保存に失敗しました: ${err.message}`);
                 }
             }, []);
-
-            // --- データ購読 ---
-            useEffect(() => {
-                if (!user) {
-                    setData({ certifications: [], progress: {}, calendar: {} });
-                    return;
-                }
-                const { db } = firebaseServices.current;
-                const userDocRef = doc(db, "users", user.uid);
-                
-                const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
-                    if (docSnap.exists()) {
-                        const d = docSnap.data();
-                        setData({
-                            certifications: d.certifications ? JSON.parse(d.certifications) : [],
-                            progress: d.progress ? JSON.parse(d.progress) : {},
-                            calendar: d.calendar ? JSON.parse(d.calendar) : {}
-                        });
-                    } else {
-                        saveDataToFirestore({ certifications: [], progress: {}, calendar: {} });
-                    }
-                }, (err) => {
-                    console.error("Data subscription error:", err);
-                    openModal('データ読み込みエラー', `データの読み込みに失敗しました。エラー: ${err.code}`);
-                });
-                return () => unsubscribe();
-            }, [user]);
-            
-            // --- データ保存 ---
-            const saveDataToFirestore = useCallback(async (fullDataToSave) => {
-                if (!user) return;
-                const { db } = firebaseServices.current;
-                const userDocRef = doc(db, "users", user.uid);
-                try {
-                    await setDoc(userDocRef, {
-                        certifications: JSON.stringify(fullDataToSave.certifications || []),
-                        progress: JSON.stringify(fullDataToSave.progress || {}),
-                        calendar: JSON.stringify(fullDataToSave.calendar || {})
-                    });
-                } catch (err) {
-                    console.error("Save data error:", err);
-                    openModal('データ保存エラー', `データの保存に失敗しました。エラー: ${err.message}`);
-                }
-            }, [user]);
-
-            // --- 認証ハンドラ ---
-            const handleGoogleLogin = () => {
-                const { auth } = firebaseServices.current;
-                const provider = new GoogleAuthProvider();
-                signInWithPopup(auth, provider)
-                    .catch((error) => {
-                        console.error("Google Popup Signin Error", error);
-                        setError(`Googleログインに失敗しました: ${error.code}`);
-                    });
-            };
-
-            const handleAnonymousLogin = () => {
-                const { auth } = firebaseServices.current;
-                signInAnonymously(auth).catch(err => {
-                    console.error("Anonymous Login Error:", err);
-                    setError(`匿名ログインに失敗しました: ${err.code}`);
-                });
-            };
-
-            const handleLogout = async () => {
-                const { auth } = firebaseServices.current;
-                await signOut(auth);
-            };
 
             // --- モーダル制御 ---
             const openModal = (title, body, onConfirm = null) => {
@@ -687,28 +985,25 @@
                 const { name, value } = e.target;
                 setCertForm(prev => ({ ...prev, [name]: value }));
             };
-            const handleAddUpdateCert = async () => {
+            const handleAddUpdateCert = () => {
                 if (!certForm.name.trim()) { openModal('入力エラー', '資格名を入力してください。'); return; }
                 const newCert = { ...certForm, id: editingCert ? editingCert.id : uuidv4(), difficulty: Number(certForm.difficulty), necessity: Number(certForm.necessity), gai: Number(certForm.gai) };
                 const updatedCerts = editingCert ? data.certifications.map(c => c.id === newCert.id ? newCert : c) : [...data.certifications, newCert];
-                await saveDataToFirestore({ ...data, certifications: updatedCerts });
+                saveData({ ...data, certifications: updatedCerts });
                 setEditingCert(null);
                 setCertForm({ name: '', difficulty: 3, necessity: 3, gai: 3 });
             };
             useEffect(() => {
-                if (editingCert) {
-                    setCertForm(editingCert);
-                } else {
-                    setCertForm({ name: '', difficulty: 3, necessity: 3, gai: 3 });
-                }
+                if (editingCert) setCertForm(editingCert);
+                else setCertForm({ name: '', difficulty: 3, necessity: 3, gai: 3 });
             }, [editingCert]);
 
             const handleDeleteCert = (id) => {
-                openModal('確認', 'この資格情報を削除しますか？\n関連する進捗データもすべて削除されます。', async () => {
+                openModal('確認', 'この資格情報を削除しますか?\n関連する進捗データもすべて削除されます。', () => {
                     const updatedCerts = data.certifications.filter(c => c.id !== id);
                     const updatedProgress = { ...data.progress };
                     delete updatedProgress[id];
-                    await saveDataToFirestore({ ...data, certifications: updatedCerts, progress: updatedProgress });
+                    saveData({ ...data, certifications: updatedCerts, progress: updatedProgress });
                     if (currentCertId === id) setCurrentCertId(null);
                     closeModal();
                 });
@@ -724,10 +1019,10 @@
             const handleCertFileUpload = (e) => {
                 const file = e.target.files[0]; if (!file) return;
                 const reader = new FileReader();
-                reader.onload = async (event) => {
+                reader.onload = (event) => {
                     try {
                         let newCerts = [];
-                        if (file.name.endsWith('.json')) { newCerts = JSON.parse(event.target.result).map(c => ({...c, id: c.id || uuidv4()})); } 
+                        if (file.name.endsWith('.json')) { newCerts = JSON.parse(event.target.result).map(c => ({...c, id: c.id || uuidv4()})); }
                         else if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
                             const wb = XLSX.read(event.target.result, { type: 'binary' });
                             const ws = wb.Sheets[wb.SheetNames[0]];
@@ -735,18 +1030,20 @@
                             newCerts = jsonData.filter(c => c.name && !isNaN(c.difficulty) && !isNaN(c.necessity) && !isNaN(c.gai)).map(c => ({...c, id: uuidv4()}));
                         }
                         if (newCerts.length > 0) {
-                            await saveDataToFirestore({ ...data, certifications: newCerts });
+                            saveData({ ...data, certifications: newCerts });
                             openModal('成功', `${newCerts.length}件の資格情報をアップロードしました。`);
                         } else { openModal('エラー', '有効なデータが見つかりませんでした。'); }
                     } catch (error) { openModal('ファイル読み込みエラー', `エラー: ${error.message}`); }
                 };
-                reader.readAsBinaryString(file); e.target.value = null;
+                if (file.name.endsWith('.json')) reader.readAsText(file);
+                else reader.readAsBinaryString(file);
+                e.target.value = null;
             };
             const handleProgressFileUpload = (e) => {
                 const file = e.target.files[0]; if (!file) return;
                 if (!currentCertId) { openModal("エラー", "先に学習中の資格を選択してください。"); e.target.value = null; return; }
                 const reader = new FileReader();
-                reader.onload = async (event) => {
+                reader.onload = (event) => {
                     try {
                         const workbook = XLSX.read(event.target.result, { type: 'binary' });
                         const worksheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -767,40 +1064,38 @@
                         });
                         const updatedProgress = JSON.parse(JSON.stringify(data.progress));
                         updatedProgress[currentCertId] = { ...(updatedProgress[currentCertId] || {}), items: items };
-                        await saveDataToFirestore({ ...data, progress: updatedProgress });
-                        openModal('成功', '学習項目のアップロードが完了しました！');
+                        saveData({ ...data, progress: updatedProgress });
+                        openModal('成功', '学習項目のアップロードが完了しました!');
                     } catch (error) { openModal('ファイル読み込みエラー', `エラー: ${error.message}`); }
                 };
                 reader.readAsBinaryString(file); e.target.value = null;
             };
-            const handleProgressCheckbox = async (minorId, majorId) => {
+            const handleProgressCheckbox = (minorId, majorId) => {
                 const updatedProgress = JSON.parse(JSON.stringify(data.progress));
                 const certProgress = updatedProgress[currentCertId];
                 if (certProgress?.items?.[majorId]?.subItems?.[minorId]) {
                     certProgress.items[majorId].subItems[minorId].checked = !certProgress.items[majorId].subItems[minorId].checked;
                     certProgress.items[majorId].checked = Object.values(certProgress.items[majorId].subItems).every(item => item.checked);
-                    await saveDataToFirestore({ ...data, progress: updatedProgress });
+                    saveData({ ...data, progress: updatedProgress });
                 }
             };
-            const handleAddMajorItem = async () => {
+            const handleAddMajorItem = () => {
                 if (!currentCertId || !newMajorItemName.trim()) return;
                 const updatedProgress = JSON.parse(JSON.stringify(data.progress));
                 const currentCertProgress = updatedProgress[currentCertId] || { items: {} };
                 currentCertProgress.items = currentCertProgress.items || {};
-                const newMajorKey = uuidv4();
-                currentCertProgress.items[newMajorKey] = { name: newMajorItemName.trim(), checked: false, type: 'major', subItems: {} };
+                currentCertProgress.items[uuidv4()] = { name: newMajorItemName.trim(), checked: false, type: 'major', subItems: {} };
                 updatedProgress[currentCertId] = currentCertProgress;
-                await saveDataToFirestore({ ...data, progress: updatedProgress });
+                saveData({ ...data, progress: updatedProgress });
                 setNewMajorItemName('');
             };
-            const handleAddMinorItem = async () => {
+            const handleAddMinorItem = () => {
                 if (!currentCertId || !newMinorItemName.trim() || !parentMajorItemId) return;
                 const updatedProgress = JSON.parse(JSON.stringify(data.progress));
                 const currentCertProgress = updatedProgress[currentCertId];
                 if (currentCertProgress?.items?.[parentMajorItemId]) {
-                    const newMinorKey = uuidv4();
-                    currentCertProgress.items[parentMajorItemId].subItems[newMinorKey] = { name: newMinorItemName.trim(), checked: false, type: 'minor' };
-                    await saveDataToFirestore({ ...data, progress: updatedProgress });
+                    currentCertProgress.items[parentMajorItemId].subItems[uuidv4()] = { name: newMinorItemName.trim(), checked: false, type: 'minor' };
+                    saveData({ ...data, progress: updatedProgress });
                     setNewMinorItemName('');
                 }
             };
@@ -835,16 +1130,13 @@
                 }
                 return { progressPercent: percent, daysRemaining: remaining, certName, totalTasks: total, completedTasks: completed, totalStudyTime: cumulativeTime };
             }, [currentCertId, data]);
-            
+
             const comprehensiveData = useMemo(() => {
                 const totalCerts = data.certifications.length;
                 const inProgressCerts = Object.keys(data.progress);
-                const inProgressCertsCount = inProgressCerts.length;
-                
                 const details = inProgressCerts.map(certId => {
                     const cert = data.certifications.find(c => c.id === certId);
                     if (!cert) return null;
-
                     const progressData = data.progress[certId];
                     let total = 0, completed = 0;
                     if (progressData && progressData.items) {
@@ -855,7 +1147,6 @@
                         });
                     }
                     const percent = total > 0 ? (completed / total) * 100 : 0;
-
                     let remaining = null;
                     if (progressData && progressData.targetDate) {
                         const target = new Date(progressData.targetDate);
@@ -863,41 +1154,29 @@
                         today.setHours(0, 0, 0, 0);
                         remaining = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
                     }
-
                     let cumulativeTime = 0;
                     if (data.calendar) {
                         Object.values(data.calendar).forEach(dayData => {
-                            if (dayData.studyLog && dayData.studyLog[certId]) {
-                                cumulativeTime += Number(dayData.studyLog[certId]);
-                            }
+                            if (dayData.studyLog && dayData.studyLog[certId]) cumulativeTime += Number(dayData.studyLog[certId]);
                         });
                     }
-                    
-                    return {
-                        name: cert.name,
-                        progressPercent: percent,
-                        daysRemaining: remaining,
-                        totalStudyTime: cumulativeTime
-                    };
+                    return { name: cert.name, progressPercent: percent, daysRemaining: remaining, totalStudyTime: cumulativeTime };
                 }).filter(Boolean);
-
-                return { totalCerts, inProgressCertsCount, details };
+                return { totalCerts, inProgressCertsCount: inProgressCerts.length, details };
             }, [data]);
 
+            // --- AIレポート生成 (Gemini API) ---
             const generateReportWithExponentialBackoff = async (payload, retries = 5, delay = 1000) => {
-                const apiKey = ""; 
+                const apiKey = "";
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-                
                 for (let i = 0; i < retries; i++) {
                     try {
                         const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                        if (response.status === 429 || response.status >= 500) {
-                            throw new Error(`API Error ${response.status}`);
-                        }
+                        if (response.status === 429 || response.status >= 500) throw new Error(`API Error ${response.status}`);
                         if (!response.ok) {
-                           const errorBody = await response.json();
-                           console.error("API Error Body:", errorBody);
-                           throw new Error(`APIエラー: ${response.status} ${response.statusText}`);
+                            const errorBody = await response.json();
+                            console.error("API Error Body:", errorBody);
+                            throw new Error(`APIエラー: ${response.status} ${response.statusText}`);
                         }
                         const result = await response.json();
                         const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -916,8 +1195,7 @@
                 try {
                     if (!currentCertId) throw new Error('レポートを生成する資格を選択してください。');
                     const prompt = `あなたは「${reporter}」です。以下の学習状況を分析し、そのキャラクターになりきって学習者を力強く励ます評価と、具体的で実行可能な次のアクションを提案してください。レポートは情熱的かつ分かりやすく、markdown形式で記述してください。\n\n### 学習状況\n- **資格名**: ${certName}\n- **目標取得日までの残り日数**: ${daysRemaining !== null ? `${daysRemaining}日` : '未設定'}\n- **累計学習時間**: ${Math.floor(totalStudyTime / 60)}時間 ${totalStudyTime % 60}分\n- **総学習項目数**: ${totalTasks}\n- **完了項目数**: ${completedTasks}\n- **進捗率**: ${progressPercent.toFixed(1)}%`;
-                    const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
-                    const text = await generateReportWithExponentialBackoff(payload);
+                    const text = await generateReportWithExponentialBackoff({ contents: [{ role: "user", parts: [{ text: prompt }] }] });
                     setReport(text);
                 } catch (err) {
                     console.error("Report generation failed:", err);
@@ -929,15 +1207,12 @@
             const generateComprehensiveReport = async () => {
                 setLoadingReport(true); setReport('');
                 try {
-                    let detailsText = comprehensiveData.details.map(d => 
+                    let detailsText = comprehensiveData.details.map(d =>
                         `- **資格名**: ${d.name}\n  - **進捗率**: ${d.progressPercent.toFixed(1)}%\n  - **累計学習時間**: ${Math.floor(d.totalStudyTime / 60)}時間 ${d.totalStudyTime % 60}分\n  - **目標日までの残り日数**: ${d.daysRemaining !== null ? `${d.daysRemaining}日` : '未設定'}`
                     ).join('\n');
                     if (!detailsText) detailsText = "学習中の資格はありません。";
-
                     const prompt = `あなたは「${reporter}」です。以下の学習状況全体を分析し、学習者を力強く励ます総合的な評価と、今後の学習戦略について具体的なアドバイスを提案してください。レポートは情熱的かつ分かりやすく、markdown形式で記述してください。\n\n### 全体状況\n- **総登録資格数**: ${comprehensiveData.totalCerts}\n- **学習中の資格数**: ${comprehensiveData.inProgressCertsCount}\n\n### 学習中資格の詳細\n${detailsText}`;
-                    
-                    const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
-                    const text = await generateReportWithExponentialBackoff(payload);
+                    const text = await generateReportWithExponentialBackoff({ contents: [{ role: "user", parts: [{ text: prompt }] }] });
                     setReport(text);
                 } catch (err) {
                     console.error("Comprehensive report generation failed:", err);
@@ -951,17 +1226,14 @@
                 if (!reportElement) return;
                 openModal("PDF生成中", "レポートのPDFを生成しています...");
                 try {
-                    const canvas = await html2canvas(reportElement, { backgroundColor: '#111827' });
+                    const canvas = await html2canvas(reportElement, { backgroundColor: '#0C1024' });
                     const imgData = canvas.toDataURL('image/png');
                     const pdf = new jsPDF('p', 'mm', 'a4');
                     const pdfWidth = pdf.internal.pageSize.getWidth();
                     const pdfHeight = pdf.internal.pageSize.getHeight();
-                    const imgWidth = canvas.width;
-                    const imgHeight = canvas.height;
-                    const ratio = Math.min((pdfWidth - 20) / imgWidth, (pdfHeight - 20) / imgHeight);
-                    const imgX = (pdfWidth - imgWidth * ratio) / 2;
-                    const imgY = 10;
-                    pdf.addImage(imgData, 'PNG', imgX, imgY, imgWidth * ratio, imgHeight * ratio);
+                    const ratio = Math.min((pdfWidth - 20) / canvas.width, (pdfHeight - 20) / canvas.height);
+                    const imgX = (pdfWidth - canvas.width * ratio) / 2;
+                    pdf.addImage(imgData, 'PNG', imgX, 10, canvas.width * ratio, canvas.height * ratio);
                     pdf.save(`${certName || 'comprehensive'}_report_${new Date().toISOString().split('T')[0]}.pdf`);
                 } catch (err) {
                     console.error("PDF Export Error: ", err);
@@ -970,16 +1242,16 @@
                     closeModal();
                 }
             };
-            const handleSaveReportToCalendar = async () => {
+            const handleSaveReportToCalendar = () => {
                 if (!selectedDate || !report) return;
                 const dateKey = selectedDate.toISOString().split('T')[0];
                 const updatedCalendar = JSON.parse(JSON.stringify(data.calendar || {}));
                 if (!updatedCalendar[dateKey]) updatedCalendar[dateKey] = {};
                 updatedCalendar[dateKey].report = report;
-                await saveDataToFirestore({ ...data, calendar: updatedCalendar });
+                saveData({ ...data, calendar: updatedCalendar });
                 openModal('保存完了', `${dateKey} にレポートを保存しました。`);
             };
-            
+
             useEffect(() => {
                 if (selectedDate && data.calendar) {
                     const dateKey = selectedDate.toISOString().split('T')[0];
@@ -992,44 +1264,16 @@
                 }
             }, [selectedDate, currentCertId, data.calendar]);
 
-
-            if (loading) { return <div className="flex items-center justify-center h-full"><h2 className="text-2xl font-bold">接続中...</h2></div>; }
-            
-            if (!user) {
-                return (
-                    <div className="flex flex-col items-center justify-center h-full bg-gray-900 p-4">
-                        <div className="text-center p-8 bg-gray-800 rounded-lg shadow-2xl max-w-md w-full">
-                            <h1 className="text-3xl md:text-4xl font-extrabold text-white mb-4" style={{fontFamily: "'Inter', sans-serif"}}>資格取得管理ダッシュボード</h1>
-                            <p className="text-gray-400 mb-8">ログイン方法を選択してください</p>
-                            {error && (
-                                <div className="text-red-400 mb-4 bg-red-900/50 p-3 rounded-md text-left">
-                                    <p className="font-bold">エラーが発生しました</p>
-                                    <p className="text-sm mt-1">{error}</p>
-                                </div>
-                            )}
-                            <div className="space-y-4">
-                                <button onClick={handleGoogleLogin} className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-200 text-gray-800 font-bold py-3 px-6 rounded-lg transition-colors">
-                                    <svg className="w-6 h-6" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path><path fill="none" d="M0 0h48v48H0z"></path></svg>
-                                    Googleでログイン
-                                </button>
-                                <button onClick={handleAnonymousLogin} className="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg transition-colors">
-                                    匿名で続ける
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                );
-            }
-
             return (
-                <div className="min-h-screen p-2 md:p-4 relative">
-                    {isModalOpen && <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-                        <div className="bg-gray-800 p-6 rounded-lg shadow-xl max-w-sm w-full">
-                            <h3 className="text-lg font-bold text-white mb-4">{modalContent.title}</h3>
-                            <div className="text-gray-300 mb-6" style={{whiteSpace: 'pre-wrap'}}>{modalContent.body}</div>
-                            <div className="flex justify-end space-x-4">
-                                {modalContent.onConfirm && <button onClick={() => { modalContent.onConfirm(); closeModal(); }} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg">はい</button>}
-                                <button onClick={closeModal} className="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg">{modalContent.onConfirm ? 'キャンセル' : '閉じる'}</button>
+                <div className="max-w-[1400px] mx-auto min-h-screen p-3 md:p-6 relative">
+                    {/* 汎用モーダル */}
+                    {isModalOpen && <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+                        <div className="glass p-6 max-w-sm w-full animate-fade-in-scale" style={{background: 'rgba(17,22,46,0.95)'}}>
+                            <h3 className="font-display text-lg font-bold mb-3">{modalContent.title}</h3>
+                            <div className="text-sm mb-6 leading-relaxed" style={{whiteSpace: 'pre-wrap', color: 'var(--muted)'}}>{modalContent.body}</div>
+                            <div className="flex justify-end gap-3">
+                                {modalContent.onConfirm && <button onClick={() => { modalContent.onConfirm(); }} className="btn btn-shu">はい</button>}
+                                <button onClick={closeModal} className="btn btn-ghost">{modalContent.onConfirm ? 'キャンセル' : '閉じる'}</button>
                             </div>
                         </div>
                     </div>}
@@ -1037,133 +1281,69 @@
                     <AIReportModal
                         isOpen={isAiReportModalOpen}
                         onClose={() => setIsAiReportModalOpen(false)}
-                        reporter={reporter}
-                        setReporter={setReporter}
-                        generateReport={generateReport}
-                        generateComprehensiveReport={generateComprehensiveReport}
-                        loadingReport={loadingReport}
-                        report={report}
-                        handlePdfExport={handlePdfExport}
-                        handleSaveReportToCalendar={handleSaveReportToCalendar}
-                        selectedDate={selectedDate}
-                        certName={certName}
-                        currentCertId={currentCertId}
+                        reporter={reporter} setReporter={setReporter}
+                        generateReport={generateReport} generateComprehensiveReport={generateComprehensiveReport}
+                        loadingReport={loadingReport} report={report}
+                        handlePdfExport={handlePdfExport} handleSaveReportToCalendar={handleSaveReportToCalendar}
+                        selectedDate={selectedDate} currentCertId={currentCertId}
                     />
 
-                    <header className="text-center mb-8 px-2">
-                        <div className="flex flex-col sm:flex-row justify-center items-center relative gap-4">
-                            <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-white" style={{fontFamily: "'Inter', sans-serif"}}>資格取得管理ダッシュボード</h1>
-                            <button onClick={handleLogout} className="w-full sm:w-auto sm:absolute sm:right-0 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg">ログアウト</button>
+                    {/* ヘッダー */}
+                    <header className="mb-6 md:mb-8 pt-2">
+                        <div className="flex items-center justify-center gap-4">
+                            <span className="stamp">資</span>
+                            <div className="text-center">
+                                <div className="eyebrow">Certification Dashboard</div>
+                                <h1 className="font-display text-2xl sm:text-3xl md:text-4xl font-bold">資格取得管理ダッシュボード</h1>
+                            </div>
                         </div>
-                         <div className="mt-2 text-xs text-gray-500 font-mono break-all">ユーザー: {user.isAnonymous ? `ゲスト (${user.uid.substring(0,8)}...)` : user.displayName || user.email}</div>
+                        <p className="text-center text-xs mt-3" style={{color: 'var(--muted)'}}>データはこのブラウザに自動保存されます</p>
                     </header>
-                    <nav className="mb-8 border-b border-gray-700">
-                        <div className="flex justify-center space-x-1 md:space-x-4">
+
+                    {/* タブナビ */}
+                    <nav className="mb-6 flex justify-center">
+                        <div className="glass p-1.5 inline-flex gap-1 rounded-full" style={{borderRadius: '999px'}}>
                             {[{id: 'tab-1', label: '優先順位'}, {id: 'tab-2', label: '進捗管理'}, {id: 'tab-3', label: 'レポート'}].map(tab => (
-                                <button key={tab.id} onClick={() => setCurrentTab(tab.id)} className={`py-2 px-3 md:px-4 font-bold rounded-t-lg text-sm md:text-base ${currentTab === tab.id ? 'bg-gray-800 text-white' : 'text-gray-400 hover:bg-gray-700/50'}`}>
+                                <button key={tab.id} onClick={() => setCurrentTab(tab.id)}
+                                    className={`tab-btn ${currentTab === tab.id ? 'active' : ''}`}>
                                     {tab.label}
                                 </button>
                             ))}
                         </div>
                     </nav>
-                    <main>
+
+                    <main className="pb-10">
                         {currentTab === 'tab-1' && <PrioritizationTab
-                            data={data}
-                            filters={filters}
-                            handleFilterChange={handleFilterChange}
-                            certForm={certForm}
-                            handleFormChange={handleFormChange}
-                            handleAddUpdateCert={handleAddUpdateCert}
-                            editingCert={editingCert}
-                            setEditingCert={setEditingCert}
-                            handleCertFileUpload={handleCertFileUpload}
-                            handleDeleteCert={handleDeleteCert}
+                            data={data} filters={filters} handleFilterChange={handleFilterChange}
+                            certForm={certForm} handleFormChange={handleFormChange} handleAddUpdateCert={handleAddUpdateCert}
+                            editingCert={editingCert} setEditingCert={setEditingCert}
+                            handleCertFileUpload={handleCertFileUpload} handleDeleteCert={handleDeleteCert}
                         />}
                         {currentTab === 'tab-2' && <ProgressTab
-                            data={data}
-                            currentCertId={currentCertId}
-                            setCurrentCertId={setCurrentCertId}
-                            saveDataToFirestore={saveDataToFirestore}
-                            handleProgressFileUpload={handleProgressFileUpload}
-                            newMajorItemName={newMajorItemName}
-                            setNewMajorItemName={setNewMajorItemName}
+                            data={data} currentCertId={currentCertId} setCurrentCertId={setCurrentCertId}
+                            saveData={saveData} handleProgressFileUpload={handleProgressFileUpload}
+                            newMajorItemName={newMajorItemName} setNewMajorItemName={setNewMajorItemName}
                             handleAddMajorItem={handleAddMajorItem}
-                            parentMajorItemId={parentMajorItemId}
-                            setParentMajorItemId={setParentMajorItemId}
-                            newMinorItemName={newMinorItemName}
-                            setNewMinorItemName={setNewMinorItemName}
-                            handleAddMinorItem={handleAddMinorItem}
-                            handleProgressCheckbox={handleProgressCheckbox}
+                            parentMajorItemId={parentMajorItemId} setParentMajorItemId={setParentMajorItemId}
+                            newMinorItemName={newMinorItemName} setNewMinorItemName={setNewMinorItemName}
+                            handleAddMinorItem={handleAddMinorItem} handleProgressCheckbox={handleProgressCheckbox}
                             progressPercent={progressPercent}
-                            openModal={openModal}
                         />}
                         {currentTab === 'tab-3' && <ReportTab
-                            data={data}
-                            currentCertId={currentCertId}
-                            progressPercent={progressPercent}
-                            daysRemaining={daysRemaining}
-                            certName={certName}
-                            totalStudyTime={totalStudyTime}
-                            viewDate={viewDate}
-                            setViewDate={setViewDate}
-                            selectedDate={selectedDate}
-                            setSelectedDate={setSelectedDate}
-                            note={note}
-                            setNote={setNote}
-                            studyTime={studyTime}
-                            setStudyTime={setStudyTime}
-                            saveDataToFirestore={saveDataToFirestore}
-                            openModal={openModal}
-                            setIsAiReportModalOpen={setIsAiReportModalOpen}
+                            data={data} currentCertId={currentCertId} progressPercent={progressPercent}
+                            daysRemaining={daysRemaining} certName={certName} totalStudyTime={totalStudyTime}
+                            viewDate={viewDate} setViewDate={setViewDate}
+                            selectedDate={selectedDate} setSelectedDate={setSelectedDate}
+                            note={note} setNote={setNote} studyTime={studyTime} setStudyTime={setStudyTime}
+                            saveData={saveData} openModal={openModal} setIsAiReportModalOpen={setIsAiReportModalOpen}
                         />}
                     </main>
                 </div>
             );
         };
-        
+
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
