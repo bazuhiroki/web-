@@ -80,17 +80,19 @@
                 radial-gradient(ellipse 100% 100% at 50% 50%, #0a0d20 0%, #05060f 100%);
             border-radius: 14px;
         }
-        /* 3Dビュー用: 真夏の昼、荒廃した要塞都市の空 */
+        /* 3Dビュー用: 夏の午後、金色に霞む荒廃都市の空 */
         .city-bg {
             background:
-                radial-gradient(ellipse 45% 32% at 62% 10%, rgba(255,255,255,0.9), rgba(255,255,255,0.25) 55%, transparent 75%),
+                radial-gradient(ellipse 38% 26% at 66% 8%, rgba(255,243,210,0.85), rgba(255,243,210,0.2) 55%, transparent 75%),
+                radial-gradient(ellipse 90% 30% at 50% 100%, rgba(226,190,120,0.35), transparent 70%),
                 linear-gradient(180deg,
-                    #5d9bd6 0%,
-                    #7fb3e2 26%,
-                    #a9cdea 48%,
-                    #d6e6ee 68%,
-                    #ece7d2 84%,
-                    #ddd3ae 100%);
+                    #3c74b4 0%,
+                    #5b93cc 20%,
+                    #83b1dc 38%,
+                    #b0cde0 56%,
+                    #d9dcc8 72%,
+                    #e3d3a4 88%,
+                    #d8bf85 100%);
             border-radius: 14px;
         }
         .scene-toggle {
@@ -272,8 +274,9 @@
                 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
                 mount.appendChild(renderer.domElement);
 
-                // 基本ライティング
-                scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+                // 基本ライティング(強さはテーマ側で調整する)
+                const ambient = new THREE.AmbientLight(0xffffff, 0.55);
+                scene.add(ambient);
                 const key = new THREE.DirectionalLight(0xffffff, 0.9);
                 key.position.set(6, 10, 8);
                 scene.add(key);
@@ -371,7 +374,7 @@
 
                 const st = {
                     scene, camera, renderer, pivot, envGroup, bubbleGroup, raycaster, pointer, map, glowTex, half,
-                    frame, frameGlow, grid, corners,
+                    frame, frameGlow, grid, corners, ambient, key,
                     autoRotate: true, isDragging: false, lastX: 0, lastY: 0,
                     rotX: 0.25, rotY: 0.6, dist: 16, hovered: null, disposed: false, spheres: [],
                     env: null
@@ -591,17 +594,25 @@
                     envGroup.remove(child);
                 }
 
-                // 立方体・グリッドの見た目をテーマに合わせる(昼景では濃色に)
+                // 立方体・グリッド・照明・フォグをテーマに合わせる
                 if (theme === 'space') {
                     st.frame.material.color.setHex(0x8a97e8); st.frame.material.opacity = 0.8;
                     st.frameGlow.material.opacity = 0.35;
                     st.corners.forEach(c => { c.material.opacity = 0.9; });
                     st.grid.material.opacity = 0.5;
+                    st.ambient.intensity = 0.55;
+                    st.key.intensity = 0.9;
+                    st.scene.fog = null;
                 } else {
                     st.frame.material.color.setHex(0x1d2b4a); st.frame.material.opacity = 0.95;
                     st.frameGlow.material.opacity = 0;
                     st.corners.forEach(c => { c.material.opacity = 0.12; });
                     st.grid.material.opacity = 0.75;
+                    // 都市: 基本照明を絞り、専用の暖色光だけで照らす(白飛び防止)
+                    st.ambient.intensity = 0.3;
+                    st.key.intensity = 0;
+                    // 大気遠近: 遠くの山並みが空の色に溶けていく
+                    st.scene.fog = new THREE.Fog(0xdedac4, 46, 175);
                 }
 
                 const makeStars = (count, radiusMin, radiusMax, size, opacity, colorHex = 0xdde4ff) => {
@@ -733,18 +744,18 @@
                     const cityY = -half - 6;   // 地表の基準高さ(立方体は街の上空に浮かぶ)
                     const rand = (a, b) => a + Math.random() * (b - a);
 
-                    // ---------- 光: 真夏の強い日差し ----------
-                    const sunLight = new THREE.DirectionalLight(0xfff3dc, 1.2);
-                    sunLight.position.set(26, 36, 16);
+                    // ---------- 光: 夏の午後、やや傾いた柔らかな日差し ----------
+                    const sunLight = new THREE.DirectionalLight(0xffe3b6, 0.95);
+                    sunLight.position.set(34, 20, 24);
                     envGroup.add(sunLight);
-                    const skyFill = new THREE.HemisphereLight(0xbfdcf5, 0x9a8f68, 0.85);
+                    const skyFill = new THREE.HemisphereLight(0x94b4d6, 0x7d6f4a, 0.55);
                     envGroup.add(skyFill);
                     const glare = new THREE.Sprite(new THREE.SpriteMaterial({
-                        map: glowTex, color: 0xffffff, transparent: true, opacity: 0.85,
-                        blending: THREE.AdditiveBlending, depthWrite: false
+                        map: glowTex, color: 0xfff0d0, transparent: true, opacity: 0.5,
+                        blending: THREE.AdditiveBlending, depthWrite: false, fog: false
                     }));
-                    glare.scale.setScalar(26);
-                    glare.position.set(28, 26, -46);
+                    glare.scale.setScalar(18);
+                    glare.position.set(30, 24, -46);
                     envGroup.add(glare);
 
                     // ---------- 地形: 起伏・クレーター・湖底を持つ盆地 ----------
@@ -799,8 +810,8 @@
                     {
                         const pos = groundGeo.attributes.position;
                         const colors = new Float32Array(pos.count * 3);
-                        const baseCol = { r: 0.78, g: 0.72, b: 0.52 };   // 枯草
-                        const dirtCol = { r: 0.45, g: 0.38, b: 0.30 };   // 焦土
+                        const baseCol = { r: 0.70, g: 0.63, b: 0.40 };   // 枯草
+                        const dirtCol = { r: 0.38, g: 0.31, b: 0.24 };   // 焦土
                         const redCol  = { r: 0.62, g: 0.16, b: 0.13 };   // 汚染
                         const bedCol  = { r: 0.28, g: 0.33, b: 0.34 };   // 湖底
                         for (let i = 0; i < pos.count; i++) {
@@ -819,7 +830,14 @@
                             pos.setY(i, y);
                             // 頂点カラー: 枯草 → 焦土 → 汚染 → 湖底 をブレンド
                             let cr = baseCol.r, cg = baseCol.g, cb = baseCol.b;
-                            const mottle = 0.9 + 0.1 * Math.sin(x * 1.7) * Math.cos(z * 2.3);
+                            // 廃墟を侵食するオリーブ色の植生をまだらに混ぜる
+                            const veg = Math.max(0, Math.min(1,
+                                Math.sin(x * 0.21 + 1.7) * Math.cos(z * 0.17) * 0.7
+                                + 0.25 * Math.sin(x * 0.83) * Math.cos(z * 1.07)));
+                            cr = cr * (1 - veg) + 0.42 * veg;
+                            cg = cg * (1 - veg) + 0.49 * veg;
+                            cb = cb * (1 - veg) + 0.26 * veg;
+                            const mottle = 0.92 + 0.08 * Math.sin(x * 1.7) * Math.cos(z * 2.3);
                             cr *= mottle; cg *= mottle; cb *= mottle;
                             if (scorch > 0) {
                                 cr = cr * (1 - scorch) + dirtCol.r * scorch;
@@ -852,7 +870,7 @@
                     // ---------- 湖と、湖面のきらめき ----------
                     const lake = new THREE.Mesh(
                         new THREE.CircleGeometry(lakeC.r, 56),
-                        new THREE.MeshStandardMaterial({ color: 0x5b93c0, roughness: 0.18, metalness: 0.4, transparent: true, opacity: 0.92 })
+                        new THREE.MeshStandardMaterial({ color: 0x3d7aa8, roughness: 0.12, metalness: 0.5, transparent: true, opacity: 0.94 })
                     );
                     lake.rotation.x = -Math.PI / 2;
                     lake.position.set(lakeC.x, cityY - 0.15, lakeC.z);
@@ -866,8 +884,8 @@
                     envGroup.add(lakeGlint);
 
                     // ---------- 外輪山(二重の山並み。遠いほど霞む) ----------
-                    const mountainNear = new THREE.MeshStandardMaterial({ color: 0x87a0b2, roughness: 1, flatShading: true });
-                    const mountainFar  = new THREE.MeshStandardMaterial({ color: 0xaec3cf, roughness: 1, flatShading: true });
+                    const mountainNear = new THREE.MeshStandardMaterial({ color: 0x5c7d94, roughness: 1, flatShading: true });
+                    const mountainFar  = new THREE.MeshStandardMaterial({ color: 0x87a4ba, roughness: 1, flatShading: true });
                     for (let i = 0; i < 16; i++) {
                         const a = (i / 16) * Math.PI * 2 + rand(-0.15, 0.15);
                         const r = rand(78, 96);
@@ -888,7 +906,7 @@
                     // 地平線の靄
                     for (let i = 0; i < 5; i++) {
                         const hz = new THREE.Sprite(new THREE.SpriteMaterial({
-                            map: glowTex, color: 0xe7ecef, transparent: true, opacity: 0.28, depthWrite: false
+                            map: glowTex, color: 0xf2ead6, transparent: true, opacity: 0.15, depthWrite: false, fog: false
                         }));
                         hz.scale.set(rand(60, 100), rand(8, 13), 1);
                         const a = (i / 5) * Math.PI * 2;
@@ -903,8 +921,8 @@
                         const puffs = 3 + Math.floor(Math.random() * 4);
                         for (let p = 0; p < puffs; p++) {
                             const puff = new THREE.Sprite(new THREE.SpriteMaterial({
-                                map: glowTex, color: 0xffffff, transparent: true,
-                                opacity: rand(0.45, 0.8), depthWrite: false
+                                map: glowTex, color: 0xfff7ea, transparent: true,
+                                opacity: rand(0.35, 0.62), depthWrite: false, fog: false
                             }));
                             const s = rand(5, 13);
                             puff.scale.set(s * 1.6, s * 0.8, 1);
@@ -982,8 +1000,8 @@
                     }
 
                     // ---------- 崩落した高架道路 ----------
-                    const deckMat = new THREE.MeshStandardMaterial({ color: 0x9a9aa0, roughness: 0.9 });
-                    const pylonMat = new THREE.MeshStandardMaterial({ color: 0x8a8a90, roughness: 0.95 });
+                    const deckMat = new THREE.MeshStandardMaterial({ color: 0x84848c, roughness: 0.9 });
+                    const pylonMat = new THREE.MeshStandardMaterial({ color: 0x76767e, roughness: 0.95 });
                     const hwY = cityY + 4.2, hwZ = -25;
                     for (let x = -52; x <= 52; x += 9) {
                         const pylon = new THREE.Mesh(new THREE.BoxGeometry(1.1, 4.2, 1.6), pylonMat);
@@ -1057,7 +1075,7 @@
                         return tex;
                     };
                     const towerTextures = [];
-                    const towerBases = ['#c4cad1', '#b7bec6', '#cdd2d8', '#aeb5bd', '#c9c4b6', '#bfc6cd', '#b2b8b4'];
+                    const towerBases = ['#adb4bc', '#a2aab3', '#b6bcc4', '#99a1ab', '#b1aca0', '#a8b0b8', '#9ca39f'];
                     for (let i = 0; i < 14; i++) {
                         towerTextures.push(makeTowerTexture(
                             towerBases[i % towerBases.length],
@@ -1066,8 +1084,8 @@
                             Math.random() < 0.45
                         ));
                     }
-                    const concreteTop = new THREE.MeshStandardMaterial({ color: 0x9aa1a9, roughness: 0.95 });
-                    const rubbleMat = new THREE.MeshStandardMaterial({ color: 0x8f8f93, roughness: 1 });
+                    const concreteTop = new THREE.MeshStandardMaterial({ color: 0x848b93, roughness: 0.95 });
+                    const rubbleMat = new THREE.MeshStandardMaterial({ color: 0x7c7c80, roughness: 1 });
                     const darkCapMat = new THREE.MeshStandardMaterial({ color: 0x3d424a, roughness: 1 });
                     const interiorMat = new THREE.MeshStandardMaterial({ color: 0x191d24, roughness: 1 });
                     const skeletonMat = new THREE.LineBasicMaterial({ color: 0x3a3f47, transparent: true, opacity: 0.9 });
@@ -1209,7 +1227,7 @@
                     }
 
                     // ---------- 旧市街: 低層住宅(切妻屋根)の街並み ----------
-                    const wallMats = ['#d8d2c4', '#cfc8b8', '#c8c4bc', '#ded8ca'].map(c =>
+                    const wallMats = ['#c2bcae', '#b8b1a2', '#b2aea6', '#c8c2b4'].map(c =>
                         new THREE.MeshStandardMaterial({ color: c, roughness: 0.95 }));
                     const roofMats = ['#7a6f66', '#6a6e78', '#8a7a68', '#5f6670'].map(c =>
                         new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, flatShading: true }));
@@ -1378,7 +1396,7 @@
                     }
 
                     // ---------- バリケード(コンクリート防護壁) ----------
-                    const barrierMat = new THREE.MeshStandardMaterial({ color: 0xb5b2a8, roughness: 0.95 });
+                    const barrierMat = new THREE.MeshStandardMaterial({ color: 0x9e9b90, roughness: 0.95 });
                     const barrierGeo = new THREE.BoxGeometry(1.1, 0.4, 0.3);
                     for (let i = 0; i < 14; i++) {
                         const bar = new THREE.Mesh(barrierGeo, barrierMat);
@@ -1448,7 +1466,7 @@
                     // 伸び放題の草むら(廃墟を侵食する植生)
                     const grassCount = 360;
                     const grassGeo = new THREE.ConeGeometry(0.16, 0.55, 4);
-                    const grassMat = new THREE.MeshStandardMaterial({ color: 0x8a8a4e, roughness: 1, flatShading: true });
+                    const grassMat = new THREE.MeshStandardMaterial({ color: 0x77793f, roughness: 1, flatShading: true });
                     const grassInst = new THREE.InstancedMesh(grassGeo, grassMat, grassCount);
                     {
                         const m4 = new THREE.Matrix4();
