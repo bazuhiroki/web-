@@ -409,7 +409,7 @@
                 };
                 const onWheel = (e) => {
                     e.preventDefault();
-                    st.dist = Math.max(8, Math.min(30, st.dist + e.deltaY * 0.015));
+                    st.dist = Math.max(8, Math.min(44, st.dist + e.deltaY * 0.015));
                 };
                 const onLeave = () => { st.pointer.set(-10, -10); };
 
@@ -471,13 +471,52 @@
                             // 積雲がゆっくり流れる
                             env.clouds.forEach(c => {
                                 c.position.x += dt * c.userData.speed;
-                                if (c.position.x > 70) c.position.x = -70;
+                                if (c.position.x > 90) c.position.x = -90;
                             });
-                            // 地表の砂塵がゆらめく
+                            // 地表の砂塵がゆらめきながら流れる
                             env.dust.forEach((d, i) => {
                                 d.material.opacity = d.userData.baseOp + Math.sin(t * 0.5 + i * 2.1) * 0.05;
-                                d.position.x += dt * 0.35;
-                                if (d.position.x > 55) d.position.x = -55;
+                                d.position.x += dt * 0.4;
+                                if (d.position.x > 60) d.position.x = -60;
+                            });
+                            // 火災の煙: 立ちのぼり、膨らみ、薄れて消える
+                            env.smokes.forEach(plume => {
+                                plume.children.forEach((s, i) => {
+                                    const p = ((t * plume.userData.speed) + i / plume.children.length + plume.userData.phase) % 1;
+                                    s.position.y = p * plume.userData.height;
+                                    s.position.x = Math.sin(p * 6 + i) * (0.4 + p * 1.6) + plume.userData.lean * p * 4;
+                                    const sc = 0.8 + p * 4.2;
+                                    s.scale.set(sc, sc * 0.85, 1);
+                                    s.material.opacity = p < 0.06 ? p * 6 * 0.4 : (1 - p) * 0.4;
+                                });
+                            });
+                            // 火元の残り火が明滅する
+                            env.embers.forEach((e, i) => {
+                                e.material.opacity = 0.5 + Math.sin(t * 7 + i * 2.3) * 0.25 + Math.sin(t * 13 + i) * 0.12;
+                            });
+                            // 鳥の群れが旋回する
+                            env.flocks.forEach(flock => {
+                                flock.rotation.y = t * flock.userData.speed;
+                                flock.position.y = flock.userData.baseY + Math.sin(t * 0.5 + flock.userData.phase) * 0.8;
+                                flock.children.forEach((b, i) => {
+                                    b.position.y = Math.sin(t * 6 + i * 1.9) * 0.25;
+                                    const flap = 0.7 + Math.abs(Math.sin(t * 9 + i * 2.2)) * 0.5;
+                                    b.scale.set(0.9, flap * 0.5, 1);
+                                });
+                            });
+                            // 空気中を漂う塵
+                            if (env.motes) {
+                                env.motes.rotation.y = t * 0.01;
+                                env.motes.position.y = Math.sin(t * 0.3) * 0.4;
+                            }
+                            // 湖面のきらめき
+                            if (env.lakeGlint) {
+                                env.lakeGlint.material.opacity = 0.18 + (Math.sin(t * 1.3) * 0.5 + 0.5) * 0.22;
+                                env.lakeGlint.scale.x = 16 + Math.sin(t * 0.7) * 3;
+                            }
+                            // ちぎれた電線が風に揺れる
+                            env.danglers.forEach((d, i) => {
+                                d.rotation.z = d.userData.baseTilt + Math.sin(t * 1.6 + i * 2.4) * 0.12;
                             });
                         }
                     }
@@ -687,219 +726,848 @@
                     st.env = { type: 'space', starsFar, starsNear, planets, moonPivots, shootingStar };
 
                 } else {
-                    // ================= 真夏の昼・荒廃した要塞都市テーマ =================
-                    const cityY = -half - 6;   // 地表の高さ(立方体は街の上空に浮かぶ)
+                    // ============================================================
+                    //  真夏の昼・荒廃した要塞都市テーマ(徹底作り込み版)
+                    //  山と湖に囲まれた盆地 / 整然と並ぶ要塞ビル群 / 破壊の痕跡
+                    // ============================================================
+                    const cityY = -half - 6;   // 地表の基準高さ(立方体は街の上空に浮かぶ)
+                    const rand = (a, b) => a + Math.random() * (b - a);
 
-                    // --- 真夏の強い日差し ---
-                    const sunLight = new THREE.DirectionalLight(0xfff3dc, 1.15);
-                    sunLight.position.set(24, 34, 14);
+                    // ---------- 光: 真夏の強い日差し ----------
+                    const sunLight = new THREE.DirectionalLight(0xfff3dc, 1.2);
+                    sunLight.position.set(26, 36, 16);
                     envGroup.add(sunLight);
                     const skyFill = new THREE.HemisphereLight(0xbfdcf5, 0x9a8f68, 0.85);
                     envGroup.add(skyFill);
-
-                    // 太陽のぎらつき
                     const glare = new THREE.Sprite(new THREE.SpriteMaterial({
                         map: glowTex, color: 0xffffff, transparent: true, opacity: 0.85,
                         blending: THREE.AdditiveBlending, depthWrite: false
                     }));
-                    glare.scale.setScalar(24);
-                    glare.position.set(26, 24, -44);
+                    glare.scale.setScalar(26);
+                    glare.position.set(28, 26, -46);
                     envGroup.add(glare);
 
-                    // --- 積雲(白いスプライトの塊、ゆっくり流れる) ---
+                    // ---------- 地形: 起伏・クレーター・湖底を持つ盆地 ----------
+                    const stains = [
+                        { x: 18, z: -14, r: 12 },   // 主クレーターの汚染
+                        { x: -27, z: 7, r: 7 },
+                        { x: 6, z: 26, r: 6 },
+                        { x: -8, z: -30, r: 8 }
+                    ];
+                    const craters = [
+                        { x: 18, z: -14, r: 9, depth: 2.4 },
+                        { x: -27, z: 7, r: 5, depth: 1.3 }
+                    ];
+                    const lakeC = { x: -18, z: 62, r: 31 };
+                    const roadLanes = [-20, -10, 0, 10, 20];
+
+                    // 地形の高さ(起伏+クレーター+湖底+道路沿いの平坦化)を返す共通関数。
+                    // 地面ジオメトリと配置物の接地の両方で使い、浮き・めり込みを防ぐ。
+                    const terrainH = (x, z) => {
+                        let y = 0.45 * Math.sin(x * 0.11) * Math.cos(z * 0.09)
+                              + 0.22 * Math.sin(x * 0.31 + z * 0.27)
+                              + 0.12 * Math.cos(x * 0.53 - z * 0.41);
+                        const rc = Math.sqrt(x * x + z * z);
+                        if (rc < 34) y *= 0.15 + 0.85 * (rc / 34);
+                        // 道路の通る帯は造成されて平坦
+                        let onRoad = false;
+                        roadLanes.forEach(lane => {
+                            if ((Math.abs(x - lane) < 1.9 && Math.abs(z) < 39) ||
+                                (Math.abs(z - lane) < 1.9 && Math.abs(x) < 39)) onRoad = true;
+                        });
+                        if (onRoad) y *= 0.08;
+                        // クレーター: 中央が陥没し、縁が盛り上がる
+                        craters.forEach(c => {
+                            const d = Math.sqrt((x - c.x) ** 2 + (z - c.z) ** 2);
+                            if (d < c.r) {
+                                y -= c.depth * (1 - (d / c.r) ** 2);
+                            } else if (d < c.r + 3.5) {
+                                y += 0.7 * Math.exp(-((d - c.r) ** 2) * 0.8);
+                            }
+                        });
+                        // 湖底: 湖の範囲は水面より下へ
+                        const dl = Math.sqrt((x - lakeC.x) ** 2 + (z - lakeC.z) ** 2);
+                        if (dl < lakeC.r + 3) {
+                            const sink = dl < lakeC.r ? 1.4 : 1.4 * (1 - (dl - lakeC.r) / 3);
+                            y = Math.min(y, -sink);
+                        }
+                        return y;
+                    };
+
+                    const groundGeo = new THREE.PlaneGeometry(280, 280, 110, 110);
+                    groundGeo.rotateX(-Math.PI / 2);
+                    {
+                        const pos = groundGeo.attributes.position;
+                        const colors = new Float32Array(pos.count * 3);
+                        const baseCol = { r: 0.78, g: 0.72, b: 0.52 };   // 枯草
+                        const dirtCol = { r: 0.45, g: 0.38, b: 0.30 };   // 焦土
+                        const redCol  = { r: 0.62, g: 0.16, b: 0.13 };   // 汚染
+                        const bedCol  = { r: 0.28, g: 0.33, b: 0.34 };   // 湖底
+                        for (let i = 0; i < pos.count; i++) {
+                            const x = pos.getX(i), z = pos.getZ(i);
+                            const y = terrainH(x, z);
+                            // 焦土(クレーター周辺)の度合い
+                            let scorch = 0;
+                            craters.forEach(c => {
+                                const d = Math.sqrt((x - c.x) ** 2 + (z - c.z) ** 2);
+                                if (d < c.r) scorch = Math.max(scorch, 1 - (d / c.r) ** 2);
+                                else if (d < c.r + 3.5) scorch = Math.max(scorch, 0.4 * Math.exp(-(d - c.r)));
+                            });
+                            // 湖底の度合い
+                            const dl = Math.sqrt((x - lakeC.x) ** 2 + (z - lakeC.z) ** 2);
+                            const lakeBed = dl < lakeC.r ? 1 : (dl < lakeC.r + 3 ? 0.5 : 0);
+                            pos.setY(i, y);
+                            // 頂点カラー: 枯草 → 焦土 → 汚染 → 湖底 をブレンド
+                            let cr = baseCol.r, cg = baseCol.g, cb = baseCol.b;
+                            const mottle = 0.9 + 0.1 * Math.sin(x * 1.7) * Math.cos(z * 2.3);
+                            cr *= mottle; cg *= mottle; cb *= mottle;
+                            if (scorch > 0) {
+                                cr = cr * (1 - scorch) + dirtCol.r * scorch;
+                                cg = cg * (1 - scorch) + dirtCol.g * scorch;
+                                cb = cb * (1 - scorch) + dirtCol.b * scorch;
+                            }
+                            stains.forEach(s => {
+                                const ds = Math.sqrt((x - s.x) ** 2 + (z - s.z) ** 2);
+                                if (ds < s.r) {
+                                    const k = (1 - ds / s.r) * 0.85;
+                                    cr = cr * (1 - k) + redCol.r * k;
+                                    cg = cg * (1 - k) + redCol.g * k;
+                                    cb = cb * (1 - k) + redCol.b * k;
+                                }
+                            });
+                            if (lakeBed > 0) {
+                                cr = cr * (1 - lakeBed) + bedCol.r * lakeBed;
+                                cg = cg * (1 - lakeBed) + bedCol.g * lakeBed;
+                                cb = cb * (1 - lakeBed) + bedCol.b * lakeBed;
+                            }
+                            colors[i * 3] = cr; colors[i * 3 + 1] = cg; colors[i * 3 + 2] = cb;
+                        }
+                        groundGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+                        groundGeo.computeVertexNormals();
+                    }
+                    const ground = new THREE.Mesh(groundGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }));
+                    ground.position.y = cityY;
+                    envGroup.add(ground);
+
+                    // ---------- 湖と、湖面のきらめき ----------
+                    const lake = new THREE.Mesh(
+                        new THREE.CircleGeometry(lakeC.r, 56),
+                        new THREE.MeshStandardMaterial({ color: 0x5b93c0, roughness: 0.18, metalness: 0.4, transparent: true, opacity: 0.92 })
+                    );
+                    lake.rotation.x = -Math.PI / 2;
+                    lake.position.set(lakeC.x, cityY - 0.15, lakeC.z);
+                    envGroup.add(lake);
+                    const lakeGlint = new THREE.Sprite(new THREE.SpriteMaterial({
+                        map: glowTex, color: 0xffffff, transparent: true, opacity: 0.25,
+                        blending: THREE.AdditiveBlending, depthWrite: false
+                    }));
+                    lakeGlint.scale.set(16, 2.2, 1);
+                    lakeGlint.position.set(lakeC.x + 6, cityY + 0.35, lakeC.z - 8);
+                    envGroup.add(lakeGlint);
+
+                    // ---------- 外輪山(二重の山並み。遠いほど霞む) ----------
+                    const mountainNear = new THREE.MeshStandardMaterial({ color: 0x87a0b2, roughness: 1, flatShading: true });
+                    const mountainFar  = new THREE.MeshStandardMaterial({ color: 0xaec3cf, roughness: 1, flatShading: true });
+                    for (let i = 0; i < 16; i++) {
+                        const a = (i / 16) * Math.PI * 2 + rand(-0.15, 0.15);
+                        const r = rand(78, 96);
+                        const hM = rand(11, 24);
+                        const m = new THREE.Mesh(new THREE.ConeGeometry(rand(17, 30), hM, 5 + Math.floor(Math.random() * 3)), mountainNear);
+                        m.position.set(Math.cos(a) * r, cityY + hM / 2 - 1, Math.sin(a) * r);
+                        m.rotation.y = Math.random() * Math.PI;
+                        envGroup.add(m);
+                    }
+                    for (let i = 0; i < 12; i++) {
+                        const a = (i / 12) * Math.PI * 2 + rand(-0.2, 0.2) + 0.26;
+                        const r = rand(105, 125);
+                        const hM = rand(16, 30);
+                        const m = new THREE.Mesh(new THREE.ConeGeometry(rand(24, 40), hM, 5), mountainFar);
+                        m.position.set(Math.cos(a) * r, cityY + hM / 2 - 1, Math.sin(a) * r);
+                        envGroup.add(m);
+                    }
+                    // 地平線の靄
+                    for (let i = 0; i < 5; i++) {
+                        const hz = new THREE.Sprite(new THREE.SpriteMaterial({
+                            map: glowTex, color: 0xe7ecef, transparent: true, opacity: 0.28, depthWrite: false
+                        }));
+                        hz.scale.set(rand(60, 100), rand(8, 13), 1);
+                        const a = (i / 5) * Math.PI * 2;
+                        hz.position.set(Math.cos(a) * 88, cityY + 5, Math.sin(a) * 88);
+                        envGroup.add(hz);
+                    }
+
+                    // ---------- 積雲 ----------
                     const clouds = [];
-                    for (let i = 0; i < 6; i++) {
+                    for (let i = 0; i < 8; i++) {
                         const cluster = new THREE.Group();
-                        const puffs = 3 + Math.floor(Math.random() * 3);
+                        const puffs = 3 + Math.floor(Math.random() * 4);
                         for (let p = 0; p < puffs; p++) {
                             const puff = new THREE.Sprite(new THREE.SpriteMaterial({
                                 map: glowTex, color: 0xffffff, transparent: true,
-                                opacity: 0.5 + Math.random() * 0.3, depthWrite: false
+                                opacity: rand(0.45, 0.8), depthWrite: false
                             }));
-                            const s = 5 + Math.random() * 7;
+                            const s = rand(5, 13);
                             puff.scale.set(s * 1.6, s * 0.8, 1);
-                            puff.position.set((p - puffs / 2) * s * 0.8, Math.random() * 1.5, Math.random() * 2);
+                            puff.position.set((p - puffs / 2) * s * 0.8, Math.random() * 1.8, Math.random() * 2);
                             cluster.add(puff);
                         }
-                        cluster.position.set(-70 + Math.random() * 140, 9 + Math.random() * 12, -46 + Math.random() * 26);
-                        cluster.userData.speed = 0.4 + Math.random() * 0.6;
+                        cluster.position.set(rand(-90, 90), rand(10, 24), rand(-56, -14));
+                        cluster.userData.speed = rand(0.35, 0.95);
                         envGroup.add(cluster);
                         clouds.push(cluster);
                     }
 
-                    // --- 枯草色の野原(盆地の地面) ---
-                    const ground = new THREE.Mesh(
-                        new THREE.PlaneGeometry(240, 240),
-                        new THREE.MeshStandardMaterial({ color: 0xc7b98d, roughness: 1 })
-                    );
-                    ground.rotation.x = -Math.PI / 2;
-                    ground.position.y = cityY - 0.03;
-                    envGroup.add(ground);
-
-                    // 赤く汚染された地面のしみ
-                    for (let i = 0; i < 7; i++) {
-                        const stain = new THREE.Mesh(
-                            new THREE.CircleGeometry(2.5 + Math.random() * 7, 26),
-                            new THREE.MeshBasicMaterial({ color: 0xa8322a, transparent: true, opacity: 0.28 + Math.random() * 0.2 })
-                        );
-                        stain.rotation.x = -Math.PI / 2;
-                        const a = Math.random() * Math.PI * 2, r = 8 + Math.random() * 34;
-                        stain.position.set(Math.cos(a) * r, cityY - 0.01, Math.sin(a) * r);
-                        envGroup.add(stain);
+                    // ---------- 道路網(ひび割れたアスファルト) ----------
+                    const makeRoadTexture = () => {
+                        const cv = document.createElement('canvas');
+                        cv.width = 64; cv.height = 512;
+                        const ctx = cv.getContext('2d');
+                        ctx.fillStyle = '#4a4a4e';
+                        ctx.fillRect(0, 0, 64, 512);
+                        // 色むら
+                        for (let i = 0; i < 60; i++) {
+                            ctx.fillStyle = `rgba(${60 + Math.random() * 30}, ${60 + Math.random() * 30}, ${64 + Math.random() * 30}, 0.25)`;
+                            ctx.fillRect(Math.random() * 60, Math.random() * 508, rand(3, 12), rand(3, 12));
+                        }
+                        // かすれた中央線
+                        ctx.fillStyle = 'rgba(226, 208, 130, 0.55)';
+                        for (let y = 6; y < 512; y += 34) {
+                            if (Math.random() < 0.75) ctx.fillRect(29, y, 6, 18);
+                        }
+                        // ひび割れ
+                        ctx.strokeStyle = 'rgba(20, 20, 24, 0.8)';
+                        ctx.lineWidth = 1.5;
+                        for (let c = 0; c < 9; c++) {
+                            ctx.beginPath();
+                            let cx = Math.random() * 64, cy = Math.random() * 512;
+                            ctx.moveTo(cx, cy);
+                            for (let s = 0; s < 6; s++) {
+                                cx += rand(-14, 14); cy += rand(-20, 20);
+                                ctx.lineTo(cx, cy);
+                            }
+                            ctx.stroke();
+                        }
+                        const tex = new THREE.CanvasTexture(cv);
+                        tex.wrapT = THREE.RepeatWrapping;
+                        return tex;
+                    };
+                    const roadTexA = makeRoadTexture();
+                    const roadTexB = makeRoadTexture();
+                    const roadMatA = new THREE.MeshStandardMaterial({ map: roadTexA, roughness: 0.95 });
+                    const roadMatB = new THREE.MeshStandardMaterial({ map: roadTexB, roughness: 0.95 });
+                    const addRoad = (x, z, len, alongX) => {
+                        const geo = new THREE.PlaneGeometry(2.4, len);
+                        const mat = (Math.random() < 0.5 ? roadMatA : roadMatB).clone();
+                        mat.map = mat.map.clone();
+                        mat.map.needsUpdate = true;
+                        mat.map.repeat.set(1, len / 12);
+                        const road = new THREE.Mesh(geo, mat);
+                        road.rotation.x = -Math.PI / 2;
+                        if (alongX) road.rotation.z = Math.PI / 2;
+                        road.position.set(x, cityY + 0.05, z);
+                        envGroup.add(road);
+                    };
+                    [-20, -10, 0, 10, 20].forEach(x => addRoad(x, 0, 76, false));
+                    [-20, -10, 0, 10, 20].forEach(z => addRoad(0, z, 76, true));
+                    // 損壊した道路: 跳ね上がった舗装片
+                    const asphaltMat = new THREE.MeshStandardMaterial({ color: 0x3e3e44, roughness: 1 });
+                    for (let i = 0; i < 10; i++) {
+                        const seg = new THREE.Mesh(new THREE.BoxGeometry(rand(1.4, 2.4), 0.18, rand(2, 4)), asphaltMat);
+                        const onX = Math.random() < 0.5;
+                        const lane = [-20, -10, 0, 10, 20][Math.floor(Math.random() * 5)];
+                        const along = rand(-32, 32);
+                        seg.position.set(onX ? along : lane, cityY + rand(0.15, 0.6), onX ? lane : along);
+                        seg.rotation.set(rand(-0.5, 0.5), Math.random() * Math.PI, rand(-0.5, 0.5));
+                        envGroup.add(seg);
                     }
 
-                    // 街路グリッド(乾いた道路)
-                    const roads = new THREE.GridHelper(96, 24, 0x6e6552, 0x9c937a);
-                    roads.material.transparent = true;
-                    roads.material.opacity = 0.45;
-                    roads.position.y = cityY;
-                    envGroup.add(roads);
-
-                    // --- 湖(盆地の片側) ---
-                    const lake = new THREE.Mesh(
-                        new THREE.CircleGeometry(30, 48),
-                        new THREE.MeshStandardMaterial({ color: 0x5f96c2, roughness: 0.25, metalness: 0.35 })
-                    );
-                    lake.rotation.x = -Math.PI / 2;
-                    lake.position.set(-14, cityY + 0.02, 58);
-                    envGroup.add(lake);
-
-                    // --- 外輪山(盆地を囲む青く霞んだ山並み) ---
-                    const mountainMat = new THREE.MeshStandardMaterial({ color: 0x8ba3b4, roughness: 1, flatShading: true });
-                    const mountainMatFar = new THREE.MeshStandardMaterial({ color: 0xa9becb, roughness: 1, flatShading: true });
-                    for (let i = 0; i < 14; i++) {
-                        const a = (i / 14) * Math.PI * 2 + Math.random() * 0.3;
-                        const r = 72 + Math.random() * 22;
-                        const hM = 10 + Math.random() * 12;
-                        const m = new THREE.Mesh(
-                            new THREE.ConeGeometry(16 + Math.random() * 14, hM, 5 + Math.floor(Math.random() * 3)),
-                            Math.random() < 0.5 ? mountainMat : mountainMatFar
-                        );
-                        m.position.set(Math.cos(a) * r, cityY + hM / 2 - 0.5, Math.sin(a) * r);
-                        m.rotation.y = Math.random() * Math.PI;
-                        envGroup.add(m);
+                    // ---------- 崩落した高架道路 ----------
+                    const deckMat = new THREE.MeshStandardMaterial({ color: 0x9a9aa0, roughness: 0.9 });
+                    const pylonMat = new THREE.MeshStandardMaterial({ color: 0x8a8a90, roughness: 0.95 });
+                    const hwY = cityY + 4.2, hwZ = -25;
+                    for (let x = -52; x <= 52; x += 9) {
+                        const pylon = new THREE.Mesh(new THREE.BoxGeometry(1.1, 4.2, 1.6), pylonMat);
+                        pylon.position.set(x, cityY + 2.1, hwZ);
+                        // 崩落区間の橋脚は折れている
+                        if (x > 2 && x < 22) {
+                            pylon.scale.y = rand(0.3, 0.6);
+                            pylon.position.y = cityY + pylon.scale.y * 2.1;
+                            pylon.rotation.z = rand(-0.3, 0.3);
+                        }
+                        envGroup.add(pylon);
                     }
+                    for (let x = -52; x < 52; x += 9) {
+                        if (x >= 3 && x < 12) continue;   // 完全に落ちた区間
+                        const deck = new THREE.Mesh(new THREE.BoxGeometry(9.2, 0.5, 3.4), deckMat);
+                        deck.position.set(x + 4.5, hwY, hwZ);
+                        if (x >= 12 && x < 21) {           // 片側が落ちて斜めになった区間
+                            deck.rotation.z = -0.38;
+                            deck.position.y = hwY - 1.7;
+                        }
+                        if (x >= -6 && x < 3) {
+                            deck.rotation.z = 0.22;
+                            deck.position.y = hwY - 0.8;
+                        }
+                        envGroup.add(deck);
+                        // ガードレール
+                        [[0, 1.7], [0, -1.7]].forEach(off => {
+                            const rail = new THREE.Mesh(new THREE.BoxGeometry(9.2, 0.28, 0.08), pylonMat);
+                            rail.position.set(0, 0.4, off[1]);
+                            deck.add(rail);
+                        });
+                    }
+                    // 落下したデッキの残骸
+                    const fallen = new THREE.Mesh(new THREE.BoxGeometry(8.6, 0.5, 3.4), deckMat);
+                    fallen.position.set(7.5, cityY + 0.7, hwZ + 1.2);
+                    fallen.rotation.set(0.1, 0.35, 0.5);
+                    envGroup.add(fallen);
 
-                    // --- ビルの外壁テクスチャ(昼のコンクリート+暗い窓、一部破損) ---
-                    const makeTowerTexture = (base, winColor, brokenRatio) => {
+                    // ---------- ビル用テクスチャ(昼のコンクリート+暗い窓+焦げ跡) ----------
+                    const makeTowerTexture = (base, winColor, brokenRatio, scorched) => {
                         const cv = document.createElement('canvas');
                         cv.width = 64; cv.height = 128;
                         const ctx = cv.getContext('2d');
                         ctx.fillStyle = base;
                         ctx.fillRect(0, 0, 64, 128);
-                        // 窓の帯
                         for (let y = 6; y < 122; y += 9) {
                             for (let x = 5; x < 58; x += 9) {
                                 if (Math.random() < 0.92) {
-                                    ctx.fillStyle = Math.random() < brokenRatio ? '#11151c' : winColor;
+                                    ctx.fillStyle = Math.random() < brokenRatio ? '#0e1218' : winColor;
                                     ctx.fillRect(x, y, 5, 5);
                                 }
                             }
                         }
-                        // 煤や雨だれの汚れ
-                        for (let s = 0; s < 5; s++) {
-                            ctx.fillStyle = `rgba(40, 40, 45, ${0.08 + Math.random() * 0.14})`;
-                            const sx = Math.random() * 60;
-                            ctx.fillRect(sx, Math.random() * 30, 2 + Math.random() * 3, 60 + Math.random() * 60);
+                        // 雨だれと煤
+                        for (let s = 0; s < 6; s++) {
+                            ctx.fillStyle = `rgba(38, 38, 44, ${rand(0.08, 0.22)})`;
+                            ctx.fillRect(Math.random() * 60, Math.random() * 30, rand(2, 5), rand(60, 120));
+                        }
+                        // 火災の焦げ跡(窓上に広がる黒煙の痕)
+                        if (scorched) {
+                            const sx = rand(4, 44), sy = rand(50, 110);
+                            const g = ctx.createRadialGradient(sx + 8, sy, 2, sx + 8, sy - 20, 34);
+                            g.addColorStop(0, 'rgba(10, 8, 8, 0.95)');
+                            g.addColorStop(0.5, 'rgba(16, 12, 12, 0.6)');
+                            g.addColorStop(1, 'rgba(20, 16, 16, 0)');
+                            ctx.fillStyle = g;
+                            ctx.fillRect(0, 0, 64, 128);
                         }
                         const tex = new THREE.CanvasTexture(cv);
                         tex.magFilter = THREE.NearestFilter;
                         return tex;
                     };
-                    const towerTextures = [
-                        makeTowerTexture('#c4cad1', '#33404f', 0.15), makeTowerTexture('#b7bec6', '#2c3a49', 0.3),
-                        makeTowerTexture('#cdd2d8', '#3a4757', 0.1),  makeTowerTexture('#aeb5bd', '#27333f', 0.45),
-                        makeTowerTexture('#c9c4b6', '#3e4a52', 0.25), makeTowerTexture('#bfc6cd', '#303d4c', 0.55)
-                    ];
+                    const towerTextures = [];
+                    const towerBases = ['#c4cad1', '#b7bec6', '#cdd2d8', '#aeb5bd', '#c9c4b6', '#bfc6cd', '#b2b8b4'];
+                    for (let i = 0; i < 14; i++) {
+                        towerTextures.push(makeTowerTexture(
+                            towerBases[i % towerBases.length],
+                            ['#33404f', '#2c3a49', '#3a4757', '#27333f'][i % 4],
+                            rand(0.1, 0.6),
+                            Math.random() < 0.45
+                        ));
+                    }
                     const concreteTop = new THREE.MeshStandardMaterial({ color: 0x9aa1a9, roughness: 0.95 });
                     const rubbleMat = new THREE.MeshStandardMaterial({ color: 0x8f8f93, roughness: 1 });
-                    const darkCapMat = new THREE.MeshStandardMaterial({ color: 0x4a4f57, roughness: 1 });
+                    const darkCapMat = new THREE.MeshStandardMaterial({ color: 0x3d424a, roughness: 1 });
+                    const interiorMat = new THREE.MeshStandardMaterial({ color: 0x191d24, roughness: 1 });
+                    const skeletonMat = new THREE.LineBasicMaterial({ color: 0x3a3f47, transparent: true, opacity: 0.9 });
+                    const tankMat = new THREE.MeshStandardMaterial({ color: 0xb8b0a0, roughness: 0.8 });
+                    const antennaMat = new THREE.MeshStandardMaterial({ color: 0x55595f, roughness: 0.7 });
 
-                    const addTower = (x, z, w, h, d, damage) => {
-                        const sideMat = new THREE.MeshStandardMaterial({
-                            map: towerTextures[Math.floor(Math.random() * towerTextures.length)],
-                            roughness: 0.88
-                        });
-                        const bld = new THREE.Mesh(
-                            new THREE.BoxGeometry(w, h, d),
-                            [sideMat, sideMat, concreteTop, concreteTop, sideMat, sideMat]
-                        );
-                        bld.position.set(x, cityY + h / 2, z);
-                        bld.rotation.y = Math.floor(Math.random() * 4) * (Math.PI / 2);
-                        // 荒廃: 一部のビルは傾き、頂部が崩れる
-                        if (damage > 0.72) {
-                            bld.rotation.z = (Math.random() - 0.5) * 0.22;
-                            bld.rotation.x = (Math.random() - 0.5) * 0.1;
-                            bld.position.y -= h * 0.05;
-                        } else if (damage > 0.5) {
-                            const cap = new THREE.Mesh(
-                                new THREE.BoxGeometry(w * (0.4 + Math.random() * 0.4), h * 0.14, d * (0.4 + Math.random() * 0.4)),
-                                darkCapMat
-                            );
-                            cap.position.set((Math.random() - 0.5) * w * 0.4, h / 2 + h * 0.05, (Math.random() - 0.5) * d * 0.4);
-                            cap.rotation.set(Math.random() * 0.4, Math.random(), Math.random() * 0.4);
-                            bld.add(cap);
+                    const rubbleSpots = [];   // 後でインスタンシングでまとめて描く瓦礫の発生点
+
+                    const towerMatFor = () => new THREE.MeshStandardMaterial({
+                        map: towerTextures[Math.floor(Math.random() * towerTextures.length)], roughness: 0.88
+                    });
+
+                    // 屋上設備(給水タンク・アンテナ・室外機)
+                    const addRoofDetail = (bld, w, h, d) => {
+                        if (Math.random() < 0.4) {
+                            const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.5, 10), tankMat);
+                            tank.position.set(rand(-w, w) * 0.25, h / 2 + 0.25, rand(-d, d) * 0.25);
+                            if (Math.random() < 0.3) tank.rotation.z = rand(0.6, 1.4); // 倒れたタンク
+                            bld.add(tank);
                         }
-                        envGroup.add(bld);
+                        if (Math.random() < 0.45) {
+                            const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.04, rand(0.8, 1.6), 6), antennaMat);
+                            ant.position.set(rand(-w, w) * 0.3, h / 2 + ant.geometry.parameters.height / 2, rand(-d, d) * 0.3);
+                            if (Math.random() < 0.35) ant.rotation.x = rand(0.4, 1.1); // 折れたアンテナ
+                            bld.add(ant);
+                        }
+                        if (Math.random() < 0.35) {
+                            const ac = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.2, 0.3), darkCapMat);
+                            ac.position.set(rand(-w, w) * 0.3, h / 2 + 0.1, rand(-d, d) * 0.3);
+                            bld.add(ac);
+                        }
                     };
 
-                    // 新市街: 整然と並ぶ同型の要塞ビル群(格子配置)
+                    // ---------- ビル生成(6種の損壊パターン) ----------
+                    const addTower = (x, z, w, h, d) => {
+                        const roll = Math.random();
+                        const group = new THREE.Group();
+                        group.position.set(x, cityY + terrainH(x, z) - 0.05, z);
+                        group.rotation.y = Math.floor(Math.random() * 4) * (Math.PI / 2);
+
+                        if (roll < 0.30) {
+                            // (1) ほぼ無傷
+                            const bld = new THREE.Mesh(new THREE.BoxGeometry(w, h, d),
+                                [towerMatFor(), towerMatFor(), concreteTop, concreteTop, towerMatFor(), towerMatFor()]);
+                            bld.position.y = h / 2;
+                            addRoofDetail(bld, w, h, d);
+                            group.add(bld);
+                        } else if (roll < 0.52) {
+                            // (2) 上層階が崩壊: 本体+むき出しの内部+瓦礫の冠
+                            const hh = h * rand(0.55, 0.8);
+                            const sideMat = towerMatFor();
+                            const bld = new THREE.Mesh(new THREE.BoxGeometry(w, hh, d),
+                                [sideMat, sideMat, interiorMat, concreteTop, sideMat, sideMat]);
+                            bld.position.y = hh / 2;
+                            group.add(bld);
+                            // ぎざぎざの残骸壁
+                            const shards = 2 + Math.floor(Math.random() * 3);
+                            for (let s = 0; s < shards; s++) {
+                                const sw = w * rand(0.15, 0.4), sh = h * rand(0.1, 0.28), sd = d * rand(0.12, 0.3);
+                                const shard = new THREE.Mesh(new THREE.BoxGeometry(sw, sh, sd), darkCapMat);
+                                shard.position.set(rand(-1, 1) * (w / 2 - sw / 2), hh + sh / 2 - 0.05, rand(-1, 1) * (d / 2 - sd / 2));
+                                shard.rotation.set(rand(-0.25, 0.25), rand(0, 1), rand(-0.25, 0.25));
+                                group.add(shard);
+                            }
+                            rubbleSpots.push({ x, z, r: Math.max(w, d) * 1.2, n: 5 });
+                        } else if (roll < 0.66) {
+                            // (3) 傾いたビル
+                            const bld = new THREE.Mesh(new THREE.BoxGeometry(w, h, d),
+                                [towerMatFor(), towerMatFor(), concreteTop, concreteTop, towerMatFor(), towerMatFor()]);
+                            bld.position.y = h / 2 - h * 0.04;
+                            bld.rotation.z = rand(-1, 1) * rand(0.12, 0.3);
+                            bld.rotation.x = rand(-0.08, 0.08);
+                            group.add(bld);
+                            rubbleSpots.push({ x, z, r: Math.max(w, d) * 1.4, n: 4 });
+                        } else if (roll < 0.76) {
+                            // (4) 骨組みだけの焼けビル
+                            const hh = h * rand(0.7, 1);
+                            const box = new THREE.BoxGeometry(w, hh, d);
+                            const frameB = new THREE.LineSegments(new THREE.EdgesGeometry(box), skeletonMat);
+                            frameB.position.y = hh / 2;
+                            group.add(frameB);
+                            // 中間フロアの床板
+                            const floors = Math.floor(hh / 1.2);
+                            for (let f = 1; f < floors; f++) {
+                                if (Math.random() < 0.35) continue; // 抜け落ちた床
+                                const slab = new THREE.Mesh(new THREE.BoxGeometry(w * 0.96, 0.06, d * 0.96), interiorMat);
+                                slab.position.y = (hh / floors) * f;
+                                group.add(slab);
+                            }
+                            rubbleSpots.push({ x, z, r: Math.max(w, d) * 1.5, n: 7 });
+                        } else if (roll < 0.9) {
+                            // (5) 倒壊: 低い残骸+倒れた上半分
+                            const stump = new THREE.Mesh(new THREE.BoxGeometry(w, h * 0.25, d),
+                                [towerMatFor(), towerMatFor(), interiorMat, concreteTop, towerMatFor(), towerMatFor()]);
+                            stump.position.y = h * 0.125;
+                            group.add(stump);
+                            const fallenPart = new THREE.Mesh(new THREE.BoxGeometry(w * 0.9, h * 0.5, d * 0.9),
+                                [towerMatFor(), towerMatFor(), darkCapMat, darkCapMat, towerMatFor(), towerMatFor()]);
+                            const dir = Math.random() * Math.PI * 2;
+                            fallenPart.position.set(Math.cos(dir) * (h * 0.3), h * 0.14 + w * 0.2, Math.sin(dir) * (h * 0.3));
+                            fallenPart.rotation.set(Math.cos(dir + Math.PI / 2) * 1.35, 0, Math.sin(dir + Math.PI / 2) * 1.35);
+                            group.add(fallenPart);
+                            rubbleSpots.push({ x, z, r: Math.max(w, d) * 2.2, n: 12 });
+                        } else {
+                            // (6) 隣に寄りかかる大破ビル
+                            const a2 = new THREE.Mesh(new THREE.BoxGeometry(w * 0.8, h * 0.8, d * 0.8),
+                                [towerMatFor(), towerMatFor(), concreteTop, concreteTop, towerMatFor(), towerMatFor()]);
+                            a2.position.y = h * 0.4;
+                            group.add(a2);
+                            const leaner = new THREE.Mesh(new THREE.BoxGeometry(w * 0.7, h * 0.9, d * 0.7),
+                                [towerMatFor(), towerMatFor(), darkCapMat, concreteTop, towerMatFor(), towerMatFor()]);
+                            leaner.position.set(w * 1.05, h * 0.36, 0);
+                            leaner.rotation.z = 0.42;
+                            group.add(leaner);
+                            rubbleSpots.push({ x: x + w, z, r: Math.max(w, d) * 1.6, n: 8 });
+                        }
+                        envGroup.add(group);
+                    };
+
+                    // 新市街: 整然とした格子配置の要塞ビル群
                     for (let gx = -3; gx <= 3; gx++) {
                         for (let gz = -3; gz <= 3; gz++) {
                             const r = Math.sqrt(gx * gx + gz * gz);
-                            if (r < 1.4 || Math.random() < 0.18) continue; // 中央は空ける・歯抜けも作る
-                            const x = gx * 5 + (Math.random() - 0.5) * 1.2;
-                            const z = gz * 5 + (Math.random() - 0.5) * 1.2;
-                            const h = 6.5 + Math.random() * 3.5;
-                            addTower(x, z, 1.7 + Math.random() * 0.5, h, 1.7 + Math.random() * 0.5, Math.random());
+                            if (r < 1.3 || Math.random() < 0.14) continue;
+                            const x = gx * 5 + rand(-0.6, 0.6);
+                            const z = gz * 5 + rand(-0.6, 0.6);
+                            if (Math.abs(x % 10) < 1.6 || Math.abs(z % 10) < 1.6) { /* 道路上でも許容(高低差あり) */ }
+                            addTower(x, z, rand(1.6, 2.2), rand(6.5, 10.5), rand(1.6, 2.2));
                         }
                     }
-                    // 旧市街: 外周に散らばる低層の街並み
-                    for (let i = 0; i < 90; i++) {
+                    // 中間区: 中規模ビル
+                    for (let i = 0; i < 40; i++) {
                         const a = Math.random() * Math.PI * 2;
-                        const r = 22 + Math.random() * 26;
+                        const r = rand(19, 30);
                         const x = Math.cos(a) * r, z = Math.sin(a) * r;
-                        if (z > 34 && x < 8) continue; // 湖の上には建てない
-                        addTower(x, z, 0.9 + Math.random() * 1.4, 0.8 + Math.random() * 2.4, 0.9 + Math.random() * 1.4, Math.random() * 0.6);
+                        const dl = Math.sqrt((x - lakeC.x) ** 2 + (z - lakeC.z) ** 2);
+                        if (dl < lakeC.r + 4) continue;
+                        addTower(x, z, rand(1.2, 1.9), rand(3, 6.5), rand(1.2, 1.9));
                     }
 
-                    // 倒壊したビルのスラブと瓦礫
-                    for (let i = 0; i < 8; i++) {
+                    // ---------- 旧市街: 低層住宅(切妻屋根)の街並み ----------
+                    const wallMats = ['#d8d2c4', '#cfc8b8', '#c8c4bc', '#ded8ca'].map(c =>
+                        new THREE.MeshStandardMaterial({ color: c, roughness: 0.95 }));
+                    const roofMats = ['#7a6f66', '#6a6e78', '#8a7a68', '#5f6670'].map(c =>
+                        new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, flatShading: true }));
+                    const roofGeo = new THREE.ConeGeometry(1, 1, 4);
+                    for (let i = 0; i < 110; i++) {
                         const a = Math.random() * Math.PI * 2;
-                        const r = 10 + Math.random() * 26;
-                        const slab = new THREE.Mesh(
-                            new THREE.BoxGeometry(1.4 + Math.random(), 0.5, 4 + Math.random() * 4),
-                            rubbleMat
-                        );
-                        slab.position.set(Math.cos(a) * r, cityY + 0.35, Math.sin(a) * r);
-                        slab.rotation.set((Math.random() - 0.5) * 0.5, Math.random() * Math.PI, (Math.random() - 0.5) * 0.35);
-                        envGroup.add(slab);
-                    }
-                    for (let i = 0; i < 46; i++) {
-                        const a = Math.random() * Math.PI * 2;
-                        const r = 6 + Math.random() * 34;
-                        const s = 0.15 + Math.random() * 0.35;
-                        const rock = new THREE.Mesh(new THREE.BoxGeometry(s, s * 0.7, s), rubbleMat);
-                        rock.position.set(Math.cos(a) * r, cityY + s * 0.35, Math.sin(a) * r);
-                        rock.rotation.set(Math.random(), Math.random(), Math.random());
-                        envGroup.add(rock);
+                        const r = rand(30, 48);
+                        const x = Math.cos(a) * r, z = Math.sin(a) * r;
+                        const dl = Math.sqrt((x - lakeC.x) ** 2 + (z - lakeC.z) ** 2);
+                        if (dl < lakeC.r + 3) continue;
+                        const hw = rand(0.7, 1.4), hh = rand(0.7, 1.5), hd = rand(0.8, 1.6);
+                        const house = new THREE.Group();
+                        const body = new THREE.Mesh(new THREE.BoxGeometry(hw, hh, hd), wallMats[i % 4]);
+                        body.position.y = hh / 2;
+                        house.add(body);
+                        if (Math.random() < 0.8) {
+                            const roof = new THREE.Mesh(roofGeo, roofMats[i % 4]);
+                            roof.scale.set(hw * 0.85, hh * 0.5, hd * 0.85);
+                            roof.position.y = hh + hh * 0.25;
+                            roof.rotation.y = Math.PI / 4;
+                            house.add(roof);
+                        }
+                        house.position.set(x, cityY + terrainH(x, z) - 0.04, z);
+                        house.rotation.y = Math.random() * Math.PI;
+                        // 旧市街も一部損壊
+                        if (Math.random() < 0.3) {
+                            house.rotation.z = rand(-0.14, 0.14);
+                            if (Math.random() < 0.5) rubbleSpots.push({ x, z, r: 1.4, n: 3 });
+                        }
+                        envGroup.add(house);
                     }
 
-                    // --- 地表を漂う砂塵の靄 ---
+                    // ---------- 湖に半分沈んだビル ----------
+                    for (let i = 0; i < 5; i++) {
+                        const a = rand(-2.4, -1.1);
+                        const r = lakeC.r * rand(0.3, 0.8);
+                        const x = lakeC.x + Math.cos(a) * r, z = lakeC.z + Math.sin(a) * r;
+                        const h = rand(3, 6);
+                        const bld = new THREE.Mesh(new THREE.BoxGeometry(rand(1.2, 1.8), h, rand(1.2, 1.8)),
+                            [towerMatFor(), towerMatFor(), darkCapMat, darkCapMat, towerMatFor(), towerMatFor()]);
+                        bld.position.set(x, cityY - 1 + h * rand(0.15, 0.4), z);
+                        bld.rotation.set(rand(-0.4, 0.4), Math.random(), rand(-0.4, 0.4));
+                        envGroup.add(bld);
+                    }
+
+                    // ---------- 電柱と垂れ下がる電線 ----------
+                    const poleMat = new THREE.MeshStandardMaterial({ color: 0x6f665c, roughness: 1 });
+                    const poleGeo = new THREE.CylinderGeometry(0.05, 0.07, 2.6, 6);
+                    const armGeo = new THREE.BoxGeometry(0.9, 0.05, 0.05);
+                    const wireMat = new THREE.LineBasicMaterial({ color: 0x22252b, transparent: true, opacity: 0.85 });
+                    const danglers = [];
+                    const buildPoleLine = (x0, z0, x1, z1, count) => {
+                        const tops = [];
+                        for (let i = 0; i < count; i++) {
+                            const k = i / (count - 1);
+                            const px = x0 + (x1 - x0) * k, pz = z0 + (z1 - z0) * k;
+                            const pole = new THREE.Group();
+                            const post = new THREE.Mesh(poleGeo, poleMat);
+                            post.position.y = 1.3;
+                            pole.add(post);
+                            const arm = new THREE.Mesh(armGeo, poleMat);
+                            arm.position.y = 2.35;
+                            pole.add(arm);
+                            const groundH = terrainH(px, pz);
+                            pole.position.set(px, cityY + groundH - 0.03, pz);
+                            // 傾いた電柱、倒れた電柱
+                            const broken = Math.random();
+                            if (broken < 0.18) {
+                                pole.rotation.z = rand(0.9, 1.35);
+                                pole.position.y = cityY + groundH + 0.1;
+                                tops.push(null);
+                            } else {
+                                if (broken < 0.5) pole.rotation.z = rand(-0.2, 0.2);
+                                const topPos = new THREE.Vector3(px, cityY + groundH + 2.32, pz);
+                                tops.push(topPos);
+                            }
+                            pole.rotation.y = Math.atan2(x1 - x0, z1 - z0);
+                            envGroup.add(pole);
+                        }
+                        // 電線: 隣接する電柱の間をたわみながら結ぶ
+                        for (let i = 0; i < tops.length - 1; i++) {
+                            if (!tops[i] || !tops[i + 1]) {
+                                // 相手を失ってちぎれ、ぶら下がる電線
+                                const src = tops[i] || tops[i + 1];
+                                if (src) {
+                                    const pts = [];
+                                    for (let s = 0; s <= 8; s++) {
+                                        const k = s / 8;
+                                        pts.push(new THREE.Vector3(src.x + k * 0.5, src.y - k * k * 1.8, src.z + k * 0.3));
+                                    }
+                                    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), wireMat);
+                                    line.userData.baseTilt = 0;
+                                    envGroup.add(line);
+                                    danglers.push(line);
+                                }
+                                continue;
+                            }
+                            [-0.35, 0.35].forEach(off => {
+                                const a2 = tops[i].clone(); const b2 = tops[i + 1].clone();
+                                const dirN = new THREE.Vector3().subVectors(b2, a2).normalize();
+                                const side = new THREE.Vector3(-dirN.z, 0, dirN.x).multiplyScalar(off);
+                                a2.add(side); b2.add(side);
+                                const mid = a2.clone().lerp(b2, 0.5); mid.y -= 0.45;   // たわみ
+                                const curve = new THREE.QuadraticBezierCurve3(a2, mid, b2);
+                                const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(10)), wireMat);
+                                envGroup.add(line);
+                            });
+                        }
+                    };
+                    buildPoleLine(24, -34, 24, 34, 12);
+                    buildPoleLine(-34, 24, 34, 24, 12);
+
+                    // ---------- 放置車両(色あせた車・横転車) ----------
+                    const carColors = [0x8a4a42, 0x4a5a6a, 0x9a9a92, 0x5a6a52, 0x7a7060, 0xa89a80];
+                    const carBodyGeo = new THREE.BoxGeometry(0.5, 0.22, 1.0);
+                    const carCabGeo = new THREE.BoxGeometry(0.44, 0.16, 0.55);
+                    const cabMat = new THREE.MeshStandardMaterial({ color: 0x1c232c, roughness: 0.5, metalness: 0.2 });
+                    for (let i = 0; i < 26; i++) {
+                        const car = new THREE.Group();
+                        const bodyMat = new THREE.MeshStandardMaterial({
+                            color: carColors[i % carColors.length], roughness: 0.85, metalness: 0.1
+                        });
+                        const body = new THREE.Mesh(carBodyGeo, bodyMat);
+                        body.position.y = 0.16;
+                        car.add(body);
+                        const cab = new THREE.Mesh(carCabGeo, cabMat);
+                        cab.position.set(0, 0.33, -0.05);
+                        car.add(cab);
+                        // 道路上か路肩に配置
+                        const onX = Math.random() < 0.5;
+                        const lane = [-20, -10, 0, 10, 20][Math.floor(Math.random() * 5)] + rand(-0.7, 0.7);
+                        const along = rand(-34, 34);
+                        car.position.set(onX ? along : lane, cityY + 0.02, onX ? lane : along);
+                        car.rotation.y = (onX ? Math.PI / 2 : 0) + rand(-0.4, 0.4);
+                        // 一部は横転・大破
+                        const wreck = Math.random();
+                        if (wreck < 0.22) { car.rotation.z = Math.PI; car.position.y = cityY + 0.42; }
+                        else if (wreck < 0.4) { car.rotation.z = Math.PI / 2; car.position.y = cityY + 0.28; }
+                        envGroup.add(car);
+                    }
+
+                    // ---------- 枯れ木 ----------
+                    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4c3f34, roughness: 1 });
+                    const trunkGeo = new THREE.CylinderGeometry(0.03, 0.09, 1.6, 5);
+                    const branchGeo = new THREE.CylinderGeometry(0.015, 0.035, 0.8, 4);
+                    for (let i = 0; i < 18; i++) {
+                        const tree = new THREE.Group();
+                        const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+                        trunk.position.y = 0.8;
+                        tree.add(trunk);
+                        const branches = 2 + Math.floor(Math.random() * 3);
+                        for (let b = 0; b < branches; b++) {
+                            const br = new THREE.Mesh(branchGeo, trunkMat);
+                            br.position.set(rand(-0.1, 0.1), rand(0.9, 1.5), rand(-0.1, 0.1));
+                            br.rotation.set(rand(-1, 1), rand(0, Math.PI), rand(0.5, 1.2));
+                            tree.add(br);
+                        }
+                        const a = Math.random() * Math.PI * 2;
+                        const r = rand(26, 46);
+                        const x = Math.cos(a) * r, z = Math.sin(a) * r;
+                        const dl = Math.sqrt((x - lakeC.x) ** 2 + (z - lakeC.z) ** 2);
+                        if (dl < lakeC.r + 2) continue;
+                        tree.position.set(x, cityY + terrainH(x, z) - 0.03, z);
+                        tree.rotation.z = rand(-0.15, 0.15);
+                        envGroup.add(tree);
+                    }
+
+                    // ---------- バリケード(コンクリート防護壁) ----------
+                    const barrierMat = new THREE.MeshStandardMaterial({ color: 0xb5b2a8, roughness: 0.95 });
+                    const barrierGeo = new THREE.BoxGeometry(1.1, 0.4, 0.3);
+                    for (let i = 0; i < 14; i++) {
+                        const bar = new THREE.Mesh(barrierGeo, barrierMat);
+                        const onX = Math.random() < 0.5;
+                        const lane = [-10, 0, 10][Math.floor(Math.random() * 3)];
+                        const along = rand(-26, 26);
+                        bar.position.set(onX ? along : lane + rand(-0.8, 0.8), cityY + 0.2, onX ? lane + rand(-0.8, 0.8) : along);
+                        bar.rotation.y = rand(0, Math.PI);
+                        if (Math.random() < 0.3) { bar.rotation.z = rand(0.6, 1.2); bar.position.y = cityY + 0.3; }
+                        envGroup.add(bar);
+                    }
+
+                    // ---------- 赤い汚染晶(主クレーターから伸びる結晶群) ----------
+                    const crystalMat = new THREE.MeshStandardMaterial({
+                        color: 0xc23a30, roughness: 0.2, metalness: 0.1,
+                        emissive: 0x5a0e0a, transparent: true, opacity: 0.88
+                    });
+                    for (let i = 0; i < 9; i++) {
+                        const hC = rand(0.6, 2.6);
+                        const shard = new THREE.Mesh(new THREE.ConeGeometry(rand(0.12, 0.3), hC, 5), crystalMat);
+                        const a = Math.random() * Math.PI * 2, r = rand(0, 6);
+                        shard.position.set(18 + Math.cos(a) * r, cityY - 1.6 + hC / 2, -14 + Math.sin(a) * r);
+                        shard.rotation.set(rand(-0.35, 0.35), Math.random(), rand(-0.35, 0.35));
+                        envGroup.add(shard);
+                    }
+
+                    // ---------- 瓦礫と草むら(インスタンシングで大量配置) ----------
+                    // ビル倒壊地点+全域に散らばる瓦礫
+                    const rubbleCount = 420;
+                    const rubbleGeo = new THREE.BoxGeometry(1, 0.7, 1);
+                    const rubbleInst = new THREE.InstancedMesh(rubbleGeo, rubbleMat, rubbleCount);
+                    {
+                        const m4 = new THREE.Matrix4();
+                        const q = new THREE.Quaternion();
+                        const e = new THREE.Euler();
+                        let idx = 0;
+                        // 倒壊地点に集中配置
+                        rubbleSpots.forEach(spot => {
+                            for (let n = 0; n < spot.n && idx < rubbleCount; n++) {
+                                const a = Math.random() * Math.PI * 2, r = Math.random() * spot.r;
+                                const s = rand(0.12, 0.42);
+                                e.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+                                q.setFromEuler(e);
+                                const rx = spot.x + Math.cos(a) * r, rz = spot.z + Math.sin(a) * r;
+                                m4.compose(
+                                    new THREE.Vector3(rx, cityY + terrainH(rx, rz) + s * 0.3, rz),
+                                    q, new THREE.Vector3(s, s, s));
+                                rubbleInst.setMatrixAt(idx++, m4);
+                            }
+                        });
+                        // 残りは全域へ
+                        while (idx < rubbleCount) {
+                            const a = Math.random() * Math.PI * 2, r = rand(4, 44);
+                            const x = Math.cos(a) * r, z = Math.sin(a) * r;
+                            const dl = Math.sqrt((x - lakeC.x) ** 2 + (z - lakeC.z) ** 2);
+                            const s = rand(0.1, 0.32);
+                            e.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+                            q.setFromEuler(e);
+                            m4.compose(
+                                new THREE.Vector3(x, cityY + (dl < lakeC.r ? -1.2 : terrainH(x, z) + s * 0.3), z),
+                                q, new THREE.Vector3(s, s, s));
+                            rubbleInst.setMatrixAt(idx++, m4);
+                        }
+                    }
+                    envGroup.add(rubbleInst);
+
+                    // 伸び放題の草むら(廃墟を侵食する植生)
+                    const grassCount = 360;
+                    const grassGeo = new THREE.ConeGeometry(0.16, 0.55, 4);
+                    const grassMat = new THREE.MeshStandardMaterial({ color: 0x8a8a4e, roughness: 1, flatShading: true });
+                    const grassInst = new THREE.InstancedMesh(grassGeo, grassMat, grassCount);
+                    {
+                        const m4 = new THREE.Matrix4();
+                        const q = new THREE.Quaternion();
+                        const e = new THREE.Euler();
+                        for (let i = 0; i < grassCount; i++) {
+                            const a = Math.random() * Math.PI * 2, r = rand(6, 52);
+                            const x = Math.cos(a) * r, z = Math.sin(a) * r;
+                            const dl = Math.sqrt((x - lakeC.x) ** 2 + (z - lakeC.z) ** 2);
+                            const s = rand(0.6, 1.8);
+                            e.set(rand(-0.2, 0.2), Math.random() * Math.PI, rand(-0.2, 0.2));
+                            q.setFromEuler(e);
+                            m4.compose(
+                                new THREE.Vector3(x, cityY + (dl < lakeC.r ? -3 : terrainH(x, z) + 0.22 * s), z),
+                                q, new THREE.Vector3(s, s, s));
+                            grassInst.setMatrixAt(i, m4);
+                        }
+                    }
+                    envGroup.add(grassInst);
+
+                    // ---------- 火災: 残り火と立ちのぼる煙 ----------
+                    const smokes = [];
+                    const embers = [];
+                    const fireSites = [
+                        { x: 12, z: 8, lean: 0.5 },
+                        { x: -14, z: -10, lean: 0.35 },
+                        { x: 33, z: 20, lean: 0.6 }
+                    ];
+                    fireSites.forEach((site, si) => {
+                        const ember = new THREE.Sprite(new THREE.SpriteMaterial({
+                            map: glowTex, color: 0xff5a22, transparent: true, opacity: 0.6,
+                            blending: THREE.AdditiveBlending, depthWrite: false
+                        }));
+                        ember.scale.set(1.6, 1, 1);
+                        ember.position.set(site.x, cityY + terrainH(site.x, site.z) + 0.6, site.z);
+                        envGroup.add(ember);
+                        embers.push(ember);
+
+                        const plume = new THREE.Group();
+                        for (let s = 0; s < 9; s++) {
+                            const puff = new THREE.Sprite(new THREE.SpriteMaterial({
+                                map: glowTex, color: 0x555b60, transparent: true, opacity: 0, depthWrite: false
+                            }));
+                            plume.add(puff);
+                        }
+                        plume.position.set(site.x, cityY + terrainH(site.x, site.z) + 0.8, site.z);
+                        plume.userData = { speed: rand(0.05, 0.09), height: rand(9, 14), lean: site.lean, phase: si * 0.37 };
+                        envGroup.add(plume);
+                        smokes.push(plume);
+                    });
+
+                    // ---------- 鳥の群れ(廃墟の空を旋回する) ----------
+                    const makeBirdTexture = () => {
+                        const cv = document.createElement('canvas');
+                        cv.width = 64; cv.height = 32;
+                        const ctx = cv.getContext('2d');
+                        ctx.strokeStyle = 'rgba(20, 24, 30, 0.95)';
+                        ctx.lineWidth = 4;
+                        ctx.lineCap = 'round';
+                        ctx.beginPath();
+                        ctx.moveTo(6, 24); ctx.quadraticCurveTo(20, 6, 32, 20);
+                        ctx.quadraticCurveTo(44, 6, 58, 24);
+                        ctx.stroke();
+                        return new THREE.CanvasTexture(cv);
+                    };
+                    const birdTex = makeBirdTexture();
+                    const flocks = [];
+                    for (let f = 0; f < 2; f++) {
+                        const flock = new THREE.Group();
+                        const birds = 6 + Math.floor(Math.random() * 4);
+                        for (let b = 0; b < birds; b++) {
+                            const bird = new THREE.Sprite(new THREE.SpriteMaterial({
+                                map: birdTex, transparent: true, depthWrite: false
+                            }));
+                            const a = (b / birds) * Math.PI * 2;
+                            const r = rand(2.5, 5.5);
+                            bird.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
+                            bird.scale.set(0.9, 0.45, 1);
+                            flock.add(bird);
+                        }
+                        flock.position.set(f === 0 ? 10 : -22, 0, f === 0 ? -4 : 14);
+                        flock.userData = { speed: rand(0.25, 0.45) * (f === 0 ? 1 : -1), baseY: cityY + rand(9, 14), phase: f * 2 };
+                        flock.position.y = flock.userData.baseY;
+                        envGroup.add(flock);
+                        flocks.push(flock);
+                    }
+
+                    // ---------- 空気中を漂う塵(パーティクル) ----------
+                    const moteCount = 260;
+                    const motePos = new Float32Array(moteCount * 3);
+                    for (let i = 0; i < moteCount; i++) {
+                        const a = Math.random() * Math.PI * 2, r = Math.pow(Math.random(), 0.6) * 46;
+                        motePos[i * 3] = Math.cos(a) * r;
+                        motePos[i * 3 + 1] = cityY + rand(0.5, 9);
+                        motePos[i * 3 + 2] = Math.sin(a) * r;
+                    }
+                    const moteGeo = new THREE.BufferGeometry();
+                    moteGeo.setAttribute('position', new THREE.BufferAttribute(motePos, 3));
+                    const motes = new THREE.Points(moteGeo, new THREE.PointsMaterial({
+                        size: 0.16, map: glowTex, transparent: true, opacity: 0.35,
+                        color: 0xf0e6c8, depthWrite: false, sizeAttenuation: true
+                    }));
+                    envGroup.add(motes);
+
+                    // ---------- 地表を漂う砂塵の帯 ----------
                     const dust = [];
-                    for (let i = 0; i < 4; i++) {
+                    for (let i = 0; i < 5; i++) {
                         const d = new THREE.Sprite(new THREE.SpriteMaterial({
                             map: glowTex, color: 0xe9dfc2, transparent: true,
-                            opacity: 0.16 + Math.random() * 0.08, depthWrite: false
+                            opacity: rand(0.14, 0.24), depthWrite: false
                         }));
-                        d.scale.set(34 + Math.random() * 22, 5 + Math.random() * 3, 1);
-                        d.position.set(-55 + Math.random() * 110, cityY + 2 + Math.random() * 2, -20 + Math.random() * 44);
+                        d.scale.set(rand(34, 58), rand(4.5, 8), 1);
+                        d.position.set(rand(-60, 60), cityY + rand(1.6, 4), rand(-24, 46));
                         d.userData.baseOp = d.material.opacity;
                         envGroup.add(d);
                         dust.push(d);
                     }
 
-                    st.env = { type: 'city', clouds, dust };
+                    st.env = { type: 'city', clouds, dust, smokes, embers, flocks, motes, lakeGlint, danglers };
                 }
             }, [theme]);
 
