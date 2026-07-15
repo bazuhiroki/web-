@@ -32,8 +32,21 @@
                 var(--bg);
             background-attachment: fixed;
         }
+        /* ページ全体にうっすら星を散らす */
+        body::before {
+            content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+            background-image:
+                radial-gradient(1px 1px at 12% 22%, rgba(255,255,255,.55), transparent 100%),
+                radial-gradient(1px 1px at 78% 12%, rgba(255,255,255,.4), transparent 100%),
+                radial-gradient(1.5px 1.5px at 55% 45%, rgba(180,195,255,.45), transparent 100%),
+                radial-gradient(1px 1px at 32% 72%, rgba(255,255,255,.3), transparent 100%),
+                radial-gradient(1px 1px at 90% 62%, rgba(255,220,190,.35), transparent 100%),
+                radial-gradient(1.5px 1.5px at 8% 88%, rgba(255,255,255,.3), transparent 100%),
+                radial-gradient(1px 1px at 66% 86%, rgba(180,195,255,.35), transparent 100%),
+                radial-gradient(1px 1px at 44% 8%, rgba(255,255,255,.4), transparent 100%);
+        }
         .font-display { font-family: 'Shippori Mincho', serif; letter-spacing: 0.04em; }
-        .font-mono-data { font-family: 'IBM Plex Mono', monospace; }
+        .font-mono-data { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
 
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: transparent; }
@@ -41,17 +54,33 @@
         ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.24); }
 
         .glass {
-            background: var(--surface);
+            background: linear-gradient(160deg, rgba(255,255,255,0.06), rgba(255,255,255,0.025));
             border: 1px solid var(--line);
-            border-radius: 18px;
+            border-radius: 20px;
             backdrop-filter: blur(14px);
             -webkit-backdrop-filter: blur(14px);
+            box-shadow: 0 12px 40px -18px rgba(0,0,0,0.6);
+        }
+        .lift { transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease; }
+        .lift:hover {
+            transform: translateY(-3px);
+            border-color: rgba(255,255,255,0.18);
+            box-shadow: 0 20px 50px -18px rgba(0,0,0,0.75);
         }
         .glass-inset {
             background: rgba(0,0,0,0.25);
             border: 1px solid var(--line);
-            border-radius: 12px;
+            border-radius: 14px;
         }
+        /* 3Dビュー用: 深宇宙の背景 */
+        .space-bg {
+            background:
+                radial-gradient(ellipse 90% 70% at 50% 38%, rgba(40,50,110,0.55), transparent 70%),
+                radial-gradient(ellipse 60% 45% at 78% 80%, rgba(120,45,60,0.22), transparent 70%),
+                radial-gradient(ellipse 100% 100% at 50% 50%, #0a0d20 0%, #05060f 100%);
+            border-radius: 14px;
+        }
+        .kpi-num { text-shadow: 0 0 24px currentColor; }
 
         .field {
             width: 100%;
@@ -227,17 +256,90 @@
                 const pivot = new THREE.Group();
                 scene.add(pivot);
 
-                const AXIS = 4.5; // 半径 (値1〜5 を -AXIS/2 〜 +AXIS/2 に写像はせず、中心3を原点に)
+                const AXIS = 4.5;
                 const map = v => (v - 3) * (AXIS / 3); // 1→-3, 3→0, 5→+3
 
-                // --- 枠(ワイヤーキューブ)とグリッド ---
+                // --- 発光用ソフトグラデーションテクスチャ ---
+                const makeGlowTexture = () => {
+                    const cv = document.createElement('canvas');
+                    cv.width = cv.height = 128;
+                    const ctx = cv.getContext('2d');
+                    const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+                    g.addColorStop(0, 'rgba(255,255,255,1)');
+                    g.addColorStop(0.35, 'rgba(255,255,255,0.4)');
+                    g.addColorStop(1, 'rgba(255,255,255,0)');
+                    ctx.fillStyle = g;
+                    ctx.fillRect(0, 0, 128, 128);
+                    return new THREE.CanvasTexture(cv);
+                };
+                const glowTex = makeGlowTexture();
+
+                // --- 星屑 (遠景・近景の2層) ---
+                const makeStars = (count, radiusMin, radiusMax, size, opacity) => {
+                    const pos = new Float32Array(count * 3);
+                    for (let i = 0; i < count; i++) {
+                        // 球殻状にランダム配置
+                        const r = radiusMin + Math.random() * (radiusMax - radiusMin);
+                        const theta = Math.random() * Math.PI * 2;
+                        const phi = Math.acos(2 * Math.random() - 1);
+                        pos[i * 3]     = r * Math.sin(phi) * Math.cos(theta);
+                        pos[i * 3 + 1] = r * Math.cos(phi);
+                        pos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+                    }
+                    const geo = new THREE.BufferGeometry();
+                    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+                    const mat = new THREE.PointsMaterial({
+                        size, map: glowTex, transparent: true, opacity,
+                        color: 0xdde4ff, blending: THREE.AdditiveBlending,
+                        depthWrite: false, sizeAttenuation: true
+                    });
+                    return new THREE.Points(geo, mat);
+                };
+                const starsFar = makeStars(900, 28, 60, 0.55, 0.75);
+                const starsNear = makeStars(220, 14, 26, 0.9, 0.55);
+                scene.add(starsFar);
+                scene.add(starsNear);
+
+                // --- 星雲 (巨大な発光スプライトを遠方に) ---
+                const makeNebula = (hex, scale, x, y, z, op) => {
+                    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+                        map: glowTex, color: hex, transparent: true, opacity: op,
+                        blending: THREE.AdditiveBlending, depthWrite: false
+                    }));
+                    sp.scale.set(scale, scale * 0.7, 1);
+                    sp.position.set(x, y, z);
+                    return sp;
+                };
+                scene.add(makeNebula(0x3646a8, 46, -20, 8, -34, 0.30));
+                scene.add(makeNebula(0x7a2b3c, 34, 22, -10, -30, 0.22));
+                scene.add(makeNebula(0x1e6e64, 26, 6, 16, -38, 0.16));
+
+                // --- 枠(発光するワイヤーキューブ) ---
                 const half = map(5) + 0.6;
                 const boxGeo = new THREE.BoxGeometry(half * 2, half * 2, half * 2);
                 const edges = new THREE.EdgesGeometry(boxGeo);
-                const frame = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x3a4270, transparent: true, opacity: 0.55 }));
+                const frame = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x8a97e8, transparent: true, opacity: 0.8 }));
                 pivot.add(frame);
+                // にじみ用の外周グロー(加算合成でわずかに拡大)
+                const frameGlow = new THREE.LineSegments(edges.clone(), new THREE.LineBasicMaterial({
+                    color: 0x4a5ae0, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false
+                }));
+                frameGlow.scale.setScalar(1.012);
+                pivot.add(frameGlow);
+                // 頂点にきらめきを配置
+                [-half, half].forEach(x => [-half, half].forEach(y => [-half, half].forEach(z => {
+                    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+                        map: glowTex, color: 0xaeb9ff, transparent: true, opacity: 0.9,
+                        blending: THREE.AdditiveBlending, depthWrite: false
+                    }));
+                    sp.scale.setScalar(0.55);
+                    sp.position.set(x, y, z);
+                    pivot.add(sp);
+                })));
 
-                const grid = new THREE.GridHelper(half * 2, 8, 0x2a3157, 0x1e2444);
+                const grid = new THREE.GridHelper(half * 2, 8, 0x39428a, 0x1c2246);
+                grid.material.transparent = true;
+                grid.material.opacity = 0.5;
                 grid.position.y = -half;
                 pivot.add(grid);
 
@@ -276,9 +378,10 @@
                 const pointer = new THREE.Vector2(-10, -10);
 
                 const st = {
-                    scene, camera, renderer, pivot, bubbleGroup, raycaster, pointer, map,
+                    scene, camera, renderer, pivot, bubbleGroup, raycaster, pointer, map, glowTex,
                     autoRotate: true, targetRotY: 0, isDragging: false, lastX: 0, lastY: 0,
-                    rotX: 0.25, rotY: 0.6, dist: 16, hovered: null, disposed: false, spheres: []
+                    rotX: 0.25, rotY: 0.6, dist: 16, hovered: null, disposed: false, spheres: [],
+                    starsFar, starsNear
                 };
                 stateRef.current = st;
 
@@ -347,7 +450,15 @@
                     pivot.rotation.y += (st.rotY - pivot.rotation.y) * 0.08;
                     pivot.rotation.x += (st.rotX - pivot.rotation.x) * 0.08;
 
-                    camera.position.set(0, st.dist * 0.28, st.dist);
+                    // 星空はゆっくり別方向に回し、わずかに瞬かせる
+                    starsFar.rotation.y -= dt * 0.008;
+                    starsNear.rotation.y += dt * 0.015;
+                    starsNear.material.opacity = 0.45 + Math.sin(t * 0.8) * 0.12;
+
+                    // カメラに漂うような浮遊感を与える
+                    const driftX = Math.sin(t * 0.22) * 0.5;
+                    const driftY = st.dist * 0.28 + Math.sin(t * 0.31) * 0.35;
+                    camera.position.set(driftX, driftY, st.dist);
                     camera.lookAt(0, 0, 0);
 
                     // 浮遊アニメーション
@@ -360,7 +471,7 @@
 
                     // ホバー判定
                     raycaster.setFromCamera(st.pointer, camera);
-                    const hits = raycaster.intersectObjects(st.spheres);
+                    const hits = raycaster.intersectObjects(st.spheres, false);
                     const tip = tooltipRef.current;
                     if (hits.length > 0) {
                         st.hovered = hits[0].object;
@@ -403,7 +514,10 @@
                 const st = stateRef.current;
                 if (!st) return;
                 // 既存を破棄
-                st.spheres.forEach(m => { m.geometry.dispose(); m.material.dispose(); st.bubbleGroup.remove(m); });
+                st.spheres.forEach(m => {
+                    m.children.forEach(ch => ch.material && ch.material.dispose());
+                    m.geometry.dispose(); m.material.dispose(); st.bubbleGroup.remove(m);
+                });
                 st.spheres = [];
 
                 const geo = new THREE.SphereGeometry(1, 32, 32);
@@ -412,9 +526,9 @@
                     const hue = 0.52 - ((cert.gai - 1) / 4) * 0.47; // 0.52(teal) → 0.05(red)
                     const color = new THREE.Color().setHSL(hue, 0.72, 0.58);
                     const mat = new THREE.MeshStandardMaterial({
-                        color, roughness: 0.25, metalness: 0.35,
-                        emissive: color.clone().multiplyScalar(0.25),
-                        transparent: true, opacity: 0.92
+                        color, roughness: 0.2, metalness: 0.4,
+                        emissive: color.clone().multiplyScalar(0.35),
+                        transparent: true, opacity: 0.95
                     });
                     const mesh = new THREE.Mesh(geo.clone(), mat);
                     const baseScale = 0.22 + cert.gai * 0.09;
@@ -424,6 +538,16 @@
                         gai: cert.gai, baseY: st.map(cert.necessity), baseScale
                     };
                     mesh.scale.setScalar(baseScale);
+
+                    // 惑星のように光るハロー
+                    const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+                        map: st.glowTex, color: color.clone().multiplyScalar(1.2),
+                        transparent: true, opacity: 0.55,
+                        blending: THREE.AdditiveBlending, depthWrite: false
+                    }));
+                    halo.scale.setScalar(3.2); // 親メッシュのスケールに追従
+                    mesh.add(halo);
+
                     st.bubbleGroup.add(mesh);
                     st.spheres.push(mesh);
                 });
@@ -499,7 +623,7 @@
         };
 
         const SectionCard = ({ eyebrow, title, children, className = '' }) => (
-            <div className={`glass p-5 ${className}`}>
+            <div className={`glass lift p-5 ${className}`}>
                 {eyebrow && <div className="eyebrow mb-1">{eyebrow}</div>}
                 {title && <h3 className="font-display text-lg font-bold mb-4">{title}</h3>}
                 {children}
@@ -637,25 +761,29 @@
             );
 
             return (
-                <div className="flex flex-col lg:flex-row gap-4 fade-up">
-                    <div className="w-full lg:w-[340px] lg:flex-shrink-0">{leftColumn}</div>
-                    <div className="w-full lg:flex-1 space-y-4">
-                        <div className="glass p-4 md:p-5">
-                            <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
-                                <div>
-                                    <div className="eyebrow">3D Matrix</div>
-                                    <h3 className="font-display text-lg font-bold">立体優先度マップ</h3>
+                <div className="space-y-4 md:space-y-5 fade-up">
+                    <div className="flex flex-col lg:flex-row gap-4 md:gap-5">
+                        <div className="w-full lg:w-[320px] xl:w-[360px] lg:flex-shrink-0">{leftColumn}</div>
+                        <div className="w-full lg:flex-1">
+                            <div className="glass p-4 md:p-5 h-full flex flex-col">
+                                <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
+                                    <div>
+                                        <div className="eyebrow">3D Matrix</div>
+                                        <h3 className="font-display text-lg xl:text-xl font-bold">立体優先度マップ</h3>
+                                    </div>
+                                    <div className="flex gap-3 text-[11px]" style={{color: 'var(--muted)'}}>
+                                        <span><span style={{color:'#e5b84b'}}>●</span> X: 難易度</span>
+                                        <span><span style={{color:'#55c6b5'}}>●</span> Y: 必要性</span>
+                                        <span><span style={{color:'#e85b3f'}}>●</span> Z: やりがい</span>
+                                    </div>
                                 </div>
-                                <div className="flex gap-3 text-[11px]" style={{color: 'var(--muted)'}}>
-                                    <span><span style={{color:'#e5b84b'}}>●</span> X: 難易度</span>
-                                    <span><span style={{color:'#55c6b5'}}>●</span> Y: 必要性</span>
-                                    <span><span style={{color:'#e85b3f'}}>●</span> Z: やりがい</span>
+                                <div className="w-full flex-1 h-[48vh] md:h-[56vh] lg:h-auto lg:min-h-[560px] min-h-[340px] space-bg overflow-hidden relative" style={{border: '1px solid var(--line)'}}>
+                                    <Bubble3DChart data={filteredCerts} />
                                 </div>
-                            </div>
-                            <div className="w-full h-[45vh] md:h-[52vh] lg:h-[58vh] min-h-[320px] glass-inset overflow-hidden relative">
-                                <Bubble3DChart data={filteredCerts} />
                             </div>
                         </div>
+                    </div>
+                    <div className="w-full">
                         <div className="glass p-4 md:p-5">
                             <div className="flex items-baseline justify-between mb-3">
                                 <h3 className="font-display text-lg font-bold">資格一覧</h3>
@@ -746,18 +874,18 @@
             const items = data.progress[currentCertId]?.items || {};
 
             return (
-                <div className="flex flex-col lg:flex-row gap-4 fade-up">
-                    <div className="w-full lg:w-[340px] lg:flex-shrink-0">{leftColumn}</div>
+                <div className="flex flex-col lg:flex-row gap-4 md:gap-5 fade-up">
+                    <div className="w-full lg:w-[320px] xl:w-[360px] lg:flex-shrink-0">{leftColumn}</div>
                     <div className="w-full lg:flex-1">
-                        <div className="glass p-4 md:p-5">
+                        <div className="glass p-4 md:p-6">
                             <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-                                <h3 className="font-display text-lg font-bold">{data.certifications.find(c => c.id === currentCertId)?.name || '資格を選択してください'}</h3>
+                                <h3 className="font-display text-lg xl:text-xl font-bold">{data.certifications.find(c => c.id === currentCertId)?.name || '資格を選択してください'}</h3>
                                 <span className="font-mono-data text-sm font-bold" style={{color: 'var(--kin)'}}>{progressPercent.toFixed(1)}%</span>
                             </div>
                             <div className="w-full h-2.5 rounded-full mb-5 overflow-hidden" style={{background: 'rgba(255,255,255,0.07)'}}>
-                                <div className="h-full rounded-full transition-all duration-500" style={{ width: `${progressPercent}%`, background: 'linear-gradient(90deg, var(--shu), var(--kin))' }}></div>
+                                <div className="h-full rounded-full transition-all duration-500" style={{ width: `${progressPercent}%`, background: 'linear-gradient(90deg, var(--shu), var(--kin))', boxShadow: '0 0 12px rgba(229,184,75,0.5)' }}></div>
                             </div>
-                            <div className="space-y-2.5 max-h-[62vh] overflow-y-auto pr-2">
+                            <div className="max-h-[66vh] overflow-y-auto pr-2 xl:columns-2 xl:gap-3">
                                 {Object.keys(items).length === 0 && (
                                     <div className="text-center py-10 text-sm" style={{color: 'var(--muted)'}}>学習項目がまだありません。<br/>左のパネルから追加してください。</div>
                                 )}
@@ -765,7 +893,7 @@
                                     const subs = Object.values(majorItem.subItems || {});
                                     const done = subs.filter(s => s.checked).length;
                                     return (
-                                        <div key={majorKey} className="glass-inset p-3.5">
+                                        <div key={majorKey} className="glass-inset p-4 mb-3" style={{breakInside: 'avoid'}}>
                                             <div className="flex items-center justify-between mb-2">
                                                 <h5 className="font-bold text-sm flex items-center gap-2">
                                                     {majorItem.checked && <span className="stamp" style={{width:'1.6rem',height:'1.6rem',fontSize:'.65rem'}}>完</span>}
@@ -828,29 +956,29 @@
             const savedReport = selectedDate && data.calendar?.[selectedDate.toISOString().split('T')[0]]?.report;
 
             return (
-                <div className="space-y-5 fade-up">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div className="glass p-5 flex flex-col items-center justify-center">
+                <div className="space-y-4 md:space-y-5 fade-up">
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 md:gap-5">
+                        <div className="glass lift p-6 flex flex-col items-center justify-center min-h-[180px]">
                             <div className="eyebrow mb-2">Countdown</div>
-                            <div className="text-4xl md:text-5xl font-bold font-mono-data" style={{color: 'var(--indigo)'}}>
+                            <div className="kpi-num text-5xl xl:text-6xl font-bold font-mono-data" style={{color: 'var(--indigo)'}}>
                                 {daysRemaining !== null ? (daysRemaining >= 0 ? daysRemaining : '期限切れ') : '–'}
                             </div>
-                            <div className="text-xs mt-2" style={{color: 'var(--muted)'}}>目標日までの日数</div>
+                            <div className="text-xs mt-3" style={{color: 'var(--muted)'}}>目標日までの日数</div>
                         </div>
-                        <div className="glass p-5 flex flex-col items-center justify-center">
+                        <div className="glass lift p-6 flex flex-col items-center justify-center min-h-[180px]">
                             <div className="eyebrow mb-2">Study Time</div>
-                            <div className="text-4xl md:text-5xl font-bold font-mono-data" style={{color: 'var(--seiji)'}}>
-                                {totalStudyTime > 0 ? <span>{Math.floor(totalStudyTime / 60)}<span className="text-lg">h</span> {totalStudyTime % 60}<span className="text-lg">m</span></span> : '–'}
+                            <div className="kpi-num text-5xl xl:text-6xl font-bold font-mono-data" style={{color: 'var(--seiji)'}}>
+                                {totalStudyTime > 0 ? <span>{Math.floor(totalStudyTime / 60)}<span className="text-xl">h</span> {totalStudyTime % 60}<span className="text-xl">m</span></span> : '–'}
                             </div>
-                            <div className="text-xs mt-2" style={{color: 'var(--muted)'}}>累計学習時間</div>
+                            <div className="text-xs mt-3" style={{color: 'var(--muted)'}}>累計学習時間</div>
                         </div>
-                        <div className="glass p-5 flex flex-col items-center justify-center">
-                            <div className="w-24 h-24 md:w-28 md:h-28">
+                        <div className="glass lift p-6 flex flex-col items-center justify-center min-h-[180px]">
+                            <div className="w-28 h-28 xl:w-32 xl:h-32">
                                 <ProgressDoughnutChart progressPercent={currentCertId ? progressPercent : 0} />
                             </div>
                             <div className="text-xs mt-3 text-center font-medium">{certName || '資格未選択'}</div>
                         </div>
-                        <div className="glass p-5 flex flex-col justify-center text-center">
+                        <div className="glass lift p-6 flex flex-col justify-center text-center min-h-[180px]">
                             <div className="eyebrow mb-1">AI Report</div>
                             <h3 className="font-display font-bold mb-2">AIレポート</h3>
                             <p className="text-xs mb-4 leading-relaxed" style={{color: 'var(--muted)'}}>学習状況を分析し、パーソナライズされたレポートとアドバイスを生成します。</p>
@@ -858,8 +986,8 @@
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        <div className="glass p-5">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-5">
+                        <div className="glass p-5 md:p-6">
                             <div className="flex justify-between items-center mb-4">
                                 <button onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1))} className="w-9 h-9 rounded-full hover:bg-white/10 transition-colors">‹</button>
                                 <h3 className="font-display text-lg font-bold">{viewDate.getFullYear()}年 {viewDate.getMonth() + 1}月</h3>
@@ -888,7 +1016,7 @@
                                 })}
                             </div>
                         </div>
-                        <div className="glass p-5">
+                        <div className="glass p-5 md:p-6">
                             <h3 className="font-display text-lg font-bold mb-4">
                                 {selectedDate ? `${selectedDate.toLocaleDateString('ja-JP')} の記録` : '日付を選択してください'}
                             </h3>
@@ -1265,7 +1393,7 @@
             }, [selectedDate, currentCertId, data.calendar]);
 
             return (
-                <div className="max-w-[1400px] mx-auto min-h-screen p-3 md:p-6 relative">
+                <div className="max-w-[1800px] mx-auto min-h-screen px-3 md:px-8 py-3 md:py-5 relative">
                     {/* 汎用モーダル */}
                     {isModalOpen && <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
                         <div className="glass p-6 max-w-sm w-full animate-fade-in-scale" style={{background: 'rgba(17,22,46,0.95)'}}>
@@ -1288,29 +1416,27 @@
                         selectedDate={selectedDate} currentCertId={currentCertId}
                     />
 
-                    {/* ヘッダー */}
-                    <header className="mb-6 md:mb-8 pt-2">
-                        <div className="flex items-center justify-center gap-4">
-                            <span className="stamp">資</span>
-                            <div className="text-center">
+                    {/* ヘッダーバー: 左にブランド / 右にタブナビ */}
+                    <header className="glass px-4 md:px-6 py-3 md:py-4 mb-5 md:mb-6 flex flex-col md:flex-row md:items-center gap-4">
+                        <div className="flex items-center gap-4 md:flex-1 min-w-0">
+                            <span className="stamp flex-shrink-0">資</span>
+                            <div className="min-w-0">
                                 <div className="eyebrow">Certification Dashboard</div>
-                                <h1 className="font-display text-2xl sm:text-3xl md:text-4xl font-bold">資格取得管理ダッシュボード</h1>
+                                <h1 className="font-display text-xl sm:text-2xl xl:text-3xl font-bold truncate">資格取得管理ダッシュボード</h1>
                             </div>
                         </div>
-                        <p className="text-center text-xs mt-3" style={{color: 'var(--muted)'}}>データはこのブラウザに自動保存されます</p>
-                    </header>
-
-                    {/* タブナビ */}
-                    <nav className="mb-6 flex justify-center">
-                        <div className="glass p-1.5 inline-flex gap-1 rounded-full" style={{borderRadius: '999px'}}>
-                            {[{id: 'tab-1', label: '優先順位'}, {id: 'tab-2', label: '進捗管理'}, {id: 'tab-3', label: 'レポート'}].map(tab => (
-                                <button key={tab.id} onClick={() => setCurrentTab(tab.id)}
-                                    className={`tab-btn ${currentTab === tab.id ? 'active' : ''}`}>
-                                    {tab.label}
-                                </button>
-                            ))}
+                        <div className="flex flex-col items-center md:items-end gap-2">
+                            <nav className="glass-inset p-1.5 inline-flex gap-1" style={{borderRadius: '999px'}}>
+                                {[{id: 'tab-1', label: '優先順位'}, {id: 'tab-2', label: '進捗管理'}, {id: 'tab-3', label: 'レポート'}].map(tab => (
+                                    <button key={tab.id} onClick={() => setCurrentTab(tab.id)}
+                                        className={`tab-btn ${currentTab === tab.id ? 'active' : ''}`}>
+                                        {tab.label}
+                                    </button>
+                                ))}
+                            </nav>
+                            <p className="text-[11px]" style={{color: 'var(--muted)'}}>データはこのブラウザに自動保存されます</p>
                         </div>
-                    </nav>
+                    </header>
 
                     <main className="pb-10">
                         {currentTab === 'tab-1' && <PrioritizationTab
