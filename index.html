@@ -80,6 +80,37 @@
                 radial-gradient(ellipse 100% 100% at 50% 50%, #0a0d20 0%, #05060f 100%);
             border-radius: 14px;
         }
+        /* 3Dビュー用: 黄昏の都市の空 */
+        .city-bg {
+            background:
+                linear-gradient(to top,
+                    rgba(214, 84, 38, 0.42) 0%,
+                    rgba(150, 52, 54, 0.30) 18%,
+                    rgba(74, 32, 66, 0.22) 38%,
+                    rgba(20, 16, 44, 0.10) 60%,
+                    transparent 78%),
+                radial-gradient(ellipse 70% 40% at 50% 100%, rgba(255, 120, 50, 0.30), transparent 70%),
+                linear-gradient(180deg, #070a1c 0%, #141026 45%, #33142a 78%, #4a1c22 100%);
+            border-radius: 14px;
+        }
+        .scene-toggle {
+            display: inline-flex; gap: 2px; padding: 3px;
+            background: rgba(0,0,0,0.35); border: 1px solid var(--line); border-radius: 999px;
+        }
+        .scene-toggle button {
+            padding: .3rem .85rem; border-radius: 999px; font-size: .75rem; font-weight: 700;
+            color: var(--muted); transition: color .2s, background .2s, box-shadow .2s;
+            white-space: nowrap;
+        }
+        .scene-toggle button:hover { color: var(--ink); }
+        .scene-toggle button.active-space {
+            color: #fff; background: linear-gradient(135deg, #4A57D8, #2c3aa8);
+            box-shadow: 0 4px 14px -4px rgba(108,123,255,0.6);
+        }
+        .scene-toggle button.active-city {
+            color: #fff; background: linear-gradient(135deg, #E8743F, #b8422a);
+            box-shadow: 0 4px 14px -4px rgba(232,116,63,0.6);
+        }
         .kpi-num { text-shadow: 0 0 24px currentColor; }
 
         .field {
@@ -221,13 +252,14 @@
         // ============================================================
         //  3D 立体バブルチャート (Three.js)
         //  X=難易度 / Y=必要性 / Z=やりがい, 球の大きさ=やりがい
+        //  テーマ: space(宇宙) / city(黄昏の都市)
         // ============================================================
-        const Bubble3DChart = ({ data }) => {
+        const Bubble3DChart = ({ data, theme = 'space' }) => {
             const mountRef = useRef(null);
             const tooltipRef = useRef(null);
             const stateRef = useRef(null);
 
-            // 初期化(1回のみ)
+            // --- 初期化(1回のみ): カメラ・立方体・操作系 ---
             useEffect(() => {
                 const mount = mountRef.current;
                 if (!mount || typeof THREE === 'undefined') return;
@@ -240,17 +272,15 @@
                 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
                 mount.appendChild(renderer.domElement);
 
-                // ライティング
+                // 基本ライティング
                 scene.add(new THREE.AmbientLight(0xffffff, 0.55));
                 const key = new THREE.DirectionalLight(0xffffff, 0.9);
                 key.position.set(6, 10, 8);
                 scene.add(key);
-                const rim = new THREE.PointLight(0x6c7bff, 0.9, 60);
-                rim.position.set(-8, -4, -6);
-                scene.add(rim);
-                const warm = new THREE.PointLight(0xe85b3f, 0.5, 60);
-                warm.position.set(8, -6, 6);
-                scene.add(warm);
+
+                // テーマ環境を入れるグループ(切替時に丸ごと差し替え)
+                const envGroup = new THREE.Group();
+                scene.add(envGroup);
 
                 // 全体を回すグループ
                 const pivot = new THREE.Group();
@@ -274,59 +304,17 @@
                 };
                 const glowTex = makeGlowTexture();
 
-                // --- 星屑 (遠景・近景の2層) ---
-                const makeStars = (count, radiusMin, radiusMax, size, opacity) => {
-                    const pos = new Float32Array(count * 3);
-                    for (let i = 0; i < count; i++) {
-                        // 球殻状にランダム配置
-                        const r = radiusMin + Math.random() * (radiusMax - radiusMin);
-                        const theta = Math.random() * Math.PI * 2;
-                        const phi = Math.acos(2 * Math.random() - 1);
-                        pos[i * 3]     = r * Math.sin(phi) * Math.cos(theta);
-                        pos[i * 3 + 1] = r * Math.cos(phi);
-                        pos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
-                    }
-                    const geo = new THREE.BufferGeometry();
-                    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-                    const mat = new THREE.PointsMaterial({
-                        size, map: glowTex, transparent: true, opacity,
-                        color: 0xdde4ff, blending: THREE.AdditiveBlending,
-                        depthWrite: false, sizeAttenuation: true
-                    });
-                    return new THREE.Points(geo, mat);
-                };
-                const starsFar = makeStars(900, 28, 60, 0.55, 0.75);
-                const starsNear = makeStars(220, 14, 26, 0.9, 0.55);
-                scene.add(starsFar);
-                scene.add(starsNear);
-
-                // --- 星雲 (巨大な発光スプライトを遠方に) ---
-                const makeNebula = (hex, scale, x, y, z, op) => {
-                    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
-                        map: glowTex, color: hex, transparent: true, opacity: op,
-                        blending: THREE.AdditiveBlending, depthWrite: false
-                    }));
-                    sp.scale.set(scale, scale * 0.7, 1);
-                    sp.position.set(x, y, z);
-                    return sp;
-                };
-                scene.add(makeNebula(0x3646a8, 46, -20, 8, -34, 0.30));
-                scene.add(makeNebula(0x7a2b3c, 34, 22, -10, -30, 0.22));
-                scene.add(makeNebula(0x1e6e64, 26, 6, 16, -38, 0.16));
-
                 // --- 枠(発光するワイヤーキューブ) ---
                 const half = map(5) + 0.6;
                 const boxGeo = new THREE.BoxGeometry(half * 2, half * 2, half * 2);
                 const edges = new THREE.EdgesGeometry(boxGeo);
                 const frame = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x8a97e8, transparent: true, opacity: 0.8 }));
                 pivot.add(frame);
-                // にじみ用の外周グロー(加算合成でわずかに拡大)
                 const frameGlow = new THREE.LineSegments(edges.clone(), new THREE.LineBasicMaterial({
                     color: 0x4a5ae0, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false
                 }));
                 frameGlow.scale.setScalar(1.012);
                 pivot.add(frameGlow);
-                // 頂点にきらめきを配置
                 [-half, half].forEach(x => [-half, half].forEach(y => [-half, half].forEach(z => {
                     const sp = new THREE.Sprite(new THREE.SpriteMaterial({
                         map: glowTex, color: 0xaeb9ff, transparent: true, opacity: 0.9,
@@ -361,14 +349,12 @@
                 };
                 const lx = makeLabel('難易度 →', '#e5b84b'); lx.position.set(0, -half - 0.7, half + 0.6); pivot.add(lx);
                 const ly = makeLabel('必要性 ↑', '#55c6b5'); ly.position.set(-half - 1.4, 0, half + 0.6); pivot.add(ly);
-                const lz = makeLabel('やりがい →', '#e85b3f'); lz.position.set(-half - 1.4, -half - 0.7, 0); lz.material.rotation = 0; pivot.add(lz);
-
-                // 目盛り数字
+                const lz = makeLabel('やりがい →', '#e85b3f'); lz.position.set(-half - 1.4, -half - 0.7, 0); pivot.add(lz);
                 for (let v = 1; v <= 5; v += 2) {
-                    const t = makeLabel(String(v), '#5b628a', 52);
-                    t.scale.set(1.4, 0.35, 1);
-                    t.position.set(map(v), -half - 0.25, half + 0.4);
-                    pivot.add(t);
+                    const tnum = makeLabel(String(v), '#5b628a', 52);
+                    tnum.scale.set(1.4, 0.35, 1);
+                    tnum.position.set(map(v), -half - 0.25, half + 0.4);
+                    pivot.add(tnum);
                 }
 
                 const bubbleGroup = new THREE.Group();
@@ -378,10 +364,10 @@
                 const pointer = new THREE.Vector2(-10, -10);
 
                 const st = {
-                    scene, camera, renderer, pivot, bubbleGroup, raycaster, pointer, map, glowTex,
-                    autoRotate: true, targetRotY: 0, isDragging: false, lastX: 0, lastY: 0,
+                    scene, camera, renderer, pivot, envGroup, bubbleGroup, raycaster, pointer, map, glowTex, half,
+                    autoRotate: true, isDragging: false, lastX: 0, lastY: 0,
                     rotX: 0.25, rotY: 0.6, dist: 16, hovered: null, disposed: false, spheres: [],
-                    starsFar, starsNear
+                    env: null
                 };
                 stateRef.current = st;
 
@@ -450,16 +436,43 @@
                     pivot.rotation.y += (st.rotY - pivot.rotation.y) * 0.08;
                     pivot.rotation.x += (st.rotX - pivot.rotation.x) * 0.08;
 
-                    // 星空はゆっくり別方向に回し、わずかに瞬かせる
-                    starsFar.rotation.y -= dt * 0.008;
-                    starsNear.rotation.y += dt * 0.015;
-                    starsNear.material.opacity = 0.45 + Math.sin(t * 0.8) * 0.12;
-
                     // カメラに漂うような浮遊感を与える
                     const driftX = Math.sin(t * 0.22) * 0.5;
                     const driftY = st.dist * 0.28 + Math.sin(t * 0.31) * 0.35;
                     camera.position.set(driftX, driftY, st.dist);
                     camera.lookAt(0, 0, 0);
+
+                    // --- テーマ別アニメーション ---
+                    const env = st.env;
+                    if (env) {
+                        if (env.type === 'space') {
+                            env.starsFar.rotation.y -= dt * 0.008;
+                            env.starsNear.rotation.y += dt * 0.015;
+                            env.starsNear.material.opacity = 0.45 + Math.sin(t * 0.8) * 0.12;
+                            env.planets.forEach(p => { p.rotation.y += dt * p.userData.spin; });
+                            env.moonPivots.forEach((mp, i) => { mp.rotation.y += dt * (0.25 + i * 0.1); });
+                            // 流れ星: 約9秒周期で一瞬走る
+                            const cyc = t % 9;
+                            if (cyc < 1.1) {
+                                const p = cyc / 1.1;
+                                env.shootingStar.position.set(-30 + p * 55, 20 - p * 9, -32);
+                                env.shootingStar.material.opacity = Math.sin(p * Math.PI) * 0.9;
+                            } else {
+                                env.shootingStar.material.opacity = 0;
+                            }
+                        } else if (env.type === 'city') {
+                            env.searchPivots.forEach((sp, i) => {
+                                sp.rotation.y = t * 0.28 + i * 2.4;
+                                sp.rotation.x = Math.sin(t * 0.35 + i) * 0.12;
+                            });
+                            env.blinkers.forEach((b, i) => {
+                                b.material.opacity = 0.1 + Math.max(0, Math.sin(t * 2.4 + i * 1.37)) * 0.85;
+                            });
+                            if (env.duskStars) env.duskStars.rotation.y -= dt * 0.006;
+                            if (env.haze) env.haze.material.opacity = 0.30 + Math.sin(t * 0.4) * 0.05;
+                            if (env.sun) env.sun.material.opacity = 0.55 + Math.sin(t * 0.5) * 0.05;
+                        }
+                    }
 
                     // 浮遊アニメーション
                     st.spheres.forEach((m, i) => {
@@ -509,11 +522,298 @@
                 };
             }, []);
 
-            // データ更新時に球を作り直す
+            // --- テーマ環境の構築(切替時に丸ごと差し替え) ---
             useEffect(() => {
                 const st = stateRef.current;
                 if (!st) return;
-                // 既存を破棄
+                const { envGroup, glowTex, half } = st;
+
+                // 既存環境を破棄
+                const disposeObj = (obj) => {
+                    if (obj.geometry) obj.geometry.dispose();
+                    if (obj.material) {
+                        (Array.isArray(obj.material) ? obj.material : [obj.material]).forEach(m => {
+                            if (m.map && m.map !== glowTex) m.map.dispose();
+                            m.dispose();
+                        });
+                    }
+                };
+                while (envGroup.children.length) {
+                    const child = envGroup.children[0];
+                    child.traverse(disposeObj);
+                    envGroup.remove(child);
+                }
+
+                const makeStars = (count, radiusMin, radiusMax, size, opacity, colorHex = 0xdde4ff) => {
+                    const pos = new Float32Array(count * 3);
+                    for (let i = 0; i < count; i++) {
+                        const r = radiusMin + Math.random() * (radiusMax - radiusMin);
+                        const theta = Math.random() * Math.PI * 2;
+                        const phi = Math.acos(2 * Math.random() - 1);
+                        pos[i * 3]     = r * Math.sin(phi) * Math.cos(theta);
+                        pos[i * 3 + 1] = r * Math.cos(phi);
+                        pos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+                    }
+                    const geo = new THREE.BufferGeometry();
+                    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+                    const mat = new THREE.PointsMaterial({
+                        size, map: glowTex, transparent: true, opacity,
+                        color: colorHex, blending: THREE.AdditiveBlending,
+                        depthWrite: false, sizeAttenuation: true
+                    });
+                    return new THREE.Points(geo, mat);
+                };
+                const makeNebula = (hex, scale, x, y, z, op) => {
+                    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+                        map: glowTex, color: hex, transparent: true, opacity: op,
+                        blending: THREE.AdditiveBlending, depthWrite: false
+                    }));
+                    sp.scale.set(scale, scale * 0.7, 1);
+                    sp.position.set(x, y, z);
+                    return sp;
+                };
+
+                if (theme === 'space') {
+                    // ================= 宇宙テーマ =================
+                    const starsFar = makeStars(900, 28, 60, 0.55, 0.75);
+                    const starsNear = makeStars(220, 14, 26, 0.9, 0.55);
+                    envGroup.add(starsFar, starsNear);
+
+                    envGroup.add(makeNebula(0x3646a8, 46, -20, 8, -34, 0.30));
+                    envGroup.add(makeNebula(0x7a2b3c, 34, 22, -10, -30, 0.22));
+                    envGroup.add(makeNebula(0x1e6e64, 26, 6, 16, -38, 0.16));
+
+                    const planets = [];
+                    const moonPivots = [];
+
+                    // 遠くの太陽
+                    const sun = new THREE.Sprite(new THREE.SpriteMaterial({
+                        map: glowTex, color: 0xffd9a0, transparent: true, opacity: 0.9,
+                        blending: THREE.AdditiveBlending, depthWrite: false
+                    }));
+                    sun.scale.setScalar(14);
+                    sun.position.set(-38, 20, -52);
+                    envGroup.add(sun);
+                    const sunLight = new THREE.PointLight(0xffe0b0, 0.45, 200);
+                    sunLight.position.copy(sun.position);
+                    envGroup.add(sunLight);
+
+                    // 環のある惑星(土星風)
+                    const ringed = new THREE.Group();
+                    const ringedBody = new THREE.Mesh(
+                        new THREE.SphereGeometry(2.6, 40, 40),
+                        new THREE.MeshStandardMaterial({ color: 0xd8b06a, roughness: 0.75, metalness: 0.1, emissive: 0x3a2c12 })
+                    );
+                    ringed.add(ringedBody);
+                    const ring = new THREE.Mesh(
+                        new THREE.RingGeometry(3.4, 5.4, 72),
+                        new THREE.MeshBasicMaterial({ color: 0xcbb488, transparent: true, opacity: 0.5, side: THREE.DoubleSide })
+                    );
+                    ring.rotation.x = Math.PI / 2.35;
+                    ringed.add(ring);
+                    ringed.position.set(-24, 9, -30);
+                    ringed.rotation.z = 0.28;
+                    ringed.userData.spin = 0.05;
+                    envGroup.add(ringed);
+                    planets.push(ringed);
+
+                    // 青いガス惑星 + 衛星
+                    const gas = new THREE.Group();
+                    const gasBody = new THREE.Mesh(
+                        new THREE.SphereGeometry(1.9, 40, 40),
+                        new THREE.MeshStandardMaterial({ color: 0x4a7dd8, roughness: 0.5, metalness: 0.2, emissive: 0x0d1e46 })
+                    );
+                    gas.add(gasBody);
+                    const gasHalo = new THREE.Sprite(new THREE.SpriteMaterial({
+                        map: glowTex, color: 0x5a8ae8, transparent: true, opacity: 0.4,
+                        blending: THREE.AdditiveBlending, depthWrite: false
+                    }));
+                    gasHalo.scale.setScalar(6);
+                    gas.add(gasHalo);
+                    const moonPivot = new THREE.Group();
+                    const moon = new THREE.Mesh(
+                        new THREE.SphereGeometry(0.42, 24, 24),
+                        new THREE.MeshStandardMaterial({ color: 0xb8bcc8, roughness: 0.9 })
+                    );
+                    moon.position.set(3.4, 0.4, 0);
+                    moonPivot.add(moon);
+                    gas.add(moonPivot);
+                    gas.position.set(23, -5, -26);
+                    gas.userData.spin = 0.09;
+                    envGroup.add(gas);
+                    planets.push(gas);
+                    moonPivots.push(moonPivot);
+
+                    // 小さな赤い惑星
+                    const red = new THREE.Group();
+                    red.add(new THREE.Mesh(
+                        new THREE.SphereGeometry(0.95, 32, 32),
+                        new THREE.MeshStandardMaterial({ color: 0xc4573a, roughness: 0.85, emissive: 0x2c0d06 })
+                    ));
+                    red.position.set(11, 13, -32);
+                    red.userData.spin = 0.14;
+                    envGroup.add(red);
+                    planets.push(red);
+
+                    // 流れ星
+                    const shootingStar = new THREE.Sprite(new THREE.SpriteMaterial({
+                        map: glowTex, color: 0xffffff, transparent: true, opacity: 0,
+                        blending: THREE.AdditiveBlending, depthWrite: false
+                    }));
+                    shootingStar.scale.set(2.6, 0.5, 1);
+                    envGroup.add(shootingStar);
+
+                    st.env = { type: 'space', starsFar, starsNear, planets, moonPivots, shootingStar };
+
+                } else {
+                    // ================= 黄昏の都市テーマ =================
+                    const cityY = -half - 5.5;      // 地表の高さ(立方体が街の上空に浮かぶ)
+
+                    // 夕暮れの淡い星
+                    const duskStars = makeStars(260, 30, 60, 0.5, 0.35, 0xcdd6ff);
+                    envGroup.add(duskStars);
+
+                    // 夕陽の光源
+                    const sunLight = new THREE.DirectionalLight(0xff8a4a, 0.75);
+                    sunLight.position.set(0, cityY + 8, -40);
+                    envGroup.add(sunLight);
+                    const fillLight = new THREE.HemisphereLight(0x33244a, 0x40160f, 0.5);
+                    envGroup.add(fillLight);
+
+                    // 沈む夕陽
+                    const sun = new THREE.Sprite(new THREE.SpriteMaterial({
+                        map: glowTex, color: 0xff8a3c, transparent: true, opacity: 0.6,
+                        blending: THREE.AdditiveBlending, depthWrite: false
+                    }));
+                    sun.scale.set(30, 22, 1);
+                    sun.position.set(0, cityY + 5, -46);
+                    envGroup.add(sun);
+
+                    // 地平線の靄
+                    const haze = new THREE.Sprite(new THREE.SpriteMaterial({
+                        map: glowTex, color: 0xd8542a, transparent: true, opacity: 0.3,
+                        blending: THREE.AdditiveBlending, depthWrite: false
+                    }));
+                    haze.scale.set(90, 16, 1);
+                    haze.position.set(0, cityY + 2.5, -34);
+                    envGroup.add(haze);
+
+                    // 地面 + 道路グリッド
+                    const ground = new THREE.Mesh(
+                        new THREE.PlaneGeometry(140, 140),
+                        new THREE.MeshBasicMaterial({ color: 0x05060e })
+                    );
+                    ground.rotation.x = -Math.PI / 2;
+                    ground.position.y = cityY - 0.02;
+                    envGroup.add(ground);
+                    const roads = new THREE.GridHelper(120, 40, 0x6e3a30, 0x2a161e);
+                    roads.material.transparent = true;
+                    roads.material.opacity = 0.55;
+                    roads.position.y = cityY;
+                    envGroup.add(roads);
+
+                    // --- ビルの窓明かりテクスチャ(数種を共有) ---
+                    const makeWindowTexture = (litRatio, warmRatio) => {
+                        const cv = document.createElement('canvas');
+                        cv.width = 64; cv.height = 128;
+                        const ctx = cv.getContext('2d');
+                        ctx.fillStyle = '#0b0d1a';
+                        ctx.fillRect(0, 0, 64, 128);
+                        for (let y = 4; y < 124; y += 8) {
+                            for (let x = 4; x < 60; x += 8) {
+                                if (Math.random() < litRatio) {
+                                    ctx.fillStyle = Math.random() < warmRatio
+                                        ? `rgba(255, ${150 + Math.floor(Math.random() * 60)}, 80, ${0.7 + Math.random() * 0.3})`
+                                        : `rgba(150, 210, 255, ${0.5 + Math.random() * 0.4})`;
+                                    ctx.fillRect(x, y, 4, 5);
+                                }
+                            }
+                        }
+                        const tex = new THREE.CanvasTexture(cv);
+                        tex.magFilter = THREE.NearestFilter;
+                        return tex;
+                    };
+                    const windowTextures = [
+                        makeWindowTexture(0.45, 0.8), makeWindowTexture(0.3, 0.85),
+                        makeWindowTexture(0.55, 0.7), makeWindowTexture(0.2, 0.9),
+                        makeWindowTexture(0.38, 0.75), makeWindowTexture(0.5, 0.65)
+                    ];
+                    const topMat = new THREE.MeshBasicMaterial({ color: 0x090b16 });
+
+                    // --- ビル群(シルエット+窓明かり) ---
+                    const blinkers = [];
+                    const tallTops = [];
+                    for (let i = 0; i < 150; i++) {
+                        const angle = Math.random() * Math.PI * 2;
+                        const radius = 6 + Math.pow(Math.random(), 0.7) * 42;
+                        const x = Math.cos(angle) * radius;
+                        const z = Math.sin(angle) * radius;
+                        // 立方体の直下は低層、外周ほど高層に
+                        const h = radius < 12
+                            ? 1.2 + Math.random() * 2.2
+                            : 2 + Math.random() * (radius < 25 ? 6.5 : 9);
+                        const w = 0.9 + Math.random() * 1.8;
+                        const d = 0.9 + Math.random() * 1.8;
+                        const sideMat = new THREE.MeshBasicMaterial({
+                            map: windowTextures[Math.floor(Math.random() * windowTextures.length)]
+                        });
+                        const bld = new THREE.Mesh(
+                            new THREE.BoxGeometry(w, h, d),
+                            [sideMat, sideMat, topMat, topMat, sideMat, sideMat]
+                        );
+                        bld.position.set(x, cityY + h / 2, z);
+                        bld.rotation.y = Math.floor(Math.random() * 4) * (Math.PI / 2);
+                        envGroup.add(bld);
+                        if (h > 7) tallTops.push(new THREE.Vector3(x, cityY + h, z));
+
+                        // 高層ビルには赤い航空障害灯
+                        if (h > 6.5 && blinkers.length < 14) {
+                            const bl = new THREE.Sprite(new THREE.SpriteMaterial({
+                                map: glowTex, color: 0xff3b30, transparent: true, opacity: 0.8,
+                                blending: THREE.AdditiveBlending, depthWrite: false
+                            }));
+                            bl.scale.setScalar(0.7);
+                            bl.position.set(x, cityY + h + 0.25, z);
+                            envGroup.add(bl);
+                            blinkers.push(bl);
+                        }
+                    }
+
+                    // --- サーチライト(街から夜空を掃く光条) ---
+                    const searchPivots = [];
+                    const beamGeo = new THREE.CylinderGeometry(1.6, 0.06, 20, 20, 1, true);
+                    beamGeo.translate(0, 10, 0); // 原点=光源(根元)
+                    const beamPositions = tallTops.length >= 3
+                        ? [tallTops[0], tallTops[1], tallTops[2]]
+                        : [new THREE.Vector3(16, cityY + 7, -12), new THREE.Vector3(-20, cityY + 8, 8), new THREE.Vector3(4, cityY + 6, 22)];
+                    beamPositions.forEach((pos, i) => {
+                        const pivotL = new THREE.Group();
+                        const beam = new THREE.Mesh(beamGeo.clone(), new THREE.MeshBasicMaterial({
+                            color: i % 2 === 0 ? 0xbfd4ff : 0xffd9a8,
+                            transparent: true, opacity: 0.10,
+                            blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+                        }));
+                        beam.rotation.z = 0.5;
+                        pivotL.add(beam);
+                        const base = new THREE.Sprite(new THREE.SpriteMaterial({
+                            map: glowTex, color: 0xffffff, transparent: true, opacity: 0.85,
+                            blending: THREE.AdditiveBlending, depthWrite: false
+                        }));
+                        base.scale.setScalar(1.1);
+                        pivotL.add(base);
+                        pivotL.position.copy(pos);
+                        envGroup.add(pivotL);
+                        searchPivots.push(pivotL);
+                    });
+
+                    st.env = { type: 'city', searchPivots, blinkers, haze, sun, duskStars };
+                }
+            }, [theme]);
+
+            // --- データ更新時に球を作り直す ---
+            useEffect(() => {
+                const st = stateRef.current;
+                if (!st) return;
                 st.spheres.forEach(m => {
                     m.children.forEach(ch => ch.material && ch.material.dispose());
                     m.geometry.dispose(); m.material.dispose(); st.bubbleGroup.remove(m);
@@ -523,7 +823,7 @@
                 const geo = new THREE.SphereGeometry(1, 32, 32);
                 data.forEach(cert => {
                     // やりがいで色相を変化 (青磁 → 金 → 朱)
-                    const hue = 0.52 - ((cert.gai - 1) / 4) * 0.47; // 0.52(teal) → 0.05(red)
+                    const hue = 0.52 - ((cert.gai - 1) / 4) * 0.47;
                     const color = new THREE.Color().setHSL(hue, 0.72, 0.58);
                     const mat = new THREE.MeshStandardMaterial({
                         color, roughness: 0.2, metalness: 0.4,
@@ -539,13 +839,12 @@
                     };
                     mesh.scale.setScalar(baseScale);
 
-                    // 惑星のように光るハロー
                     const halo = new THREE.Sprite(new THREE.SpriteMaterial({
                         map: st.glowTex, color: color.clone().multiplyScalar(1.2),
                         transparent: true, opacity: 0.55,
                         blending: THREE.AdditiveBlending, depthWrite: false
                     }));
-                    halo.scale.setScalar(3.2); // 親メッシュのスケールに追従
+                    halo.scale.setScalar(3.2);
                     mesh.add(halo);
 
                     st.bubbleGroup.add(mesh);
@@ -557,7 +856,7 @@
                 <div className="relative w-full h-full" ref={mountRef}>
                     <div ref={tooltipRef} className="g3d-tooltip"></div>
                     {(!data || data.length === 0) && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4 z-10">
+                        <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4 z-10 pointer-events-none">
                             <div className="text-4xl mb-3 opacity-40">◍</div>
                             <p className="text-sm" style={{color: 'var(--muted)'}}>表示するデータがありません。<br/>資格情報を追加またはアップロードしてください。</p>
                         </div>
@@ -694,6 +993,7 @@
         // ============================================================
         const PrioritizationTab = ({ data, filters, handleFilterChange, certForm, handleFormChange, handleAddUpdateCert, editingCert, setEditingCert, handleCertFileUpload, handleDeleteCert }) => {
             const isDesktop = useMediaQuery('(min-width: 1024px)');
+            const [sceneTheme, setSceneTheme] = useState('space');
             const filteredCerts = useMemo(() => {
                 return data.certifications.filter(cert =>
                     cert.difficulty >= filters.difficulty.min && cert.difficulty <= filters.difficulty.max &&
@@ -771,14 +1071,20 @@
                                         <div className="eyebrow">3D Matrix</div>
                                         <h3 className="font-display text-lg xl:text-xl font-bold">立体優先度マップ</h3>
                                     </div>
-                                    <div className="flex gap-3 text-[11px]" style={{color: 'var(--muted)'}}>
-                                        <span><span style={{color:'#e5b84b'}}>●</span> X: 難易度</span>
-                                        <span><span style={{color:'#55c6b5'}}>●</span> Y: 必要性</span>
-                                        <span><span style={{color:'#e85b3f'}}>●</span> Z: やりがい</span>
+                                    <div className="flex items-center gap-4 flex-wrap">
+                                        <div className="flex gap-3 text-[11px]" style={{color: 'var(--muted)'}}>
+                                            <span><span style={{color:'#e5b84b'}}>●</span> X: 難易度</span>
+                                            <span><span style={{color:'#55c6b5'}}>●</span> Y: 必要性</span>
+                                            <span><span style={{color:'#e85b3f'}}>●</span> Z: やりがい</span>
+                                        </div>
+                                        <div className="scene-toggle" role="group" aria-label="背景テーマ切り替え">
+                                            <button onClick={() => setSceneTheme('space')} className={sceneTheme === 'space' ? 'active-space' : ''}>✦ 宇宙</button>
+                                            <button onClick={() => setSceneTheme('city')} className={sceneTheme === 'city' ? 'active-city' : ''}>▦ 都市</button>
+                                        </div>
                                     </div>
                                 </div>
-                                <div className="w-full flex-1 h-[48vh] md:h-[56vh] lg:h-auto lg:min-h-[560px] min-h-[340px] space-bg overflow-hidden relative" style={{border: '1px solid var(--line)'}}>
-                                    <Bubble3DChart data={filteredCerts} />
+                                <div className={`w-full flex-1 h-[48vh] md:h-[56vh] lg:h-auto lg:min-h-[560px] min-h-[340px] ${sceneTheme === 'space' ? 'space-bg' : 'city-bg'} overflow-hidden relative`} style={{border: '1px solid var(--line)', transition: 'background 0.6s ease'}}>
+                                    <Bubble3DChart data={filteredCerts} theme={sceneTheme} />
                                 </div>
                             </div>
                         </div>
